@@ -209,9 +209,9 @@ export default function LoginPage() {
 
 
   return (
-    // Root: full viewport, flex row on lg+, column on mobile/tablet
+    // Root: full viewport, no page scroll on desktop, completely responsive
     <div
-      className="h-screen w-full flex flex-col lg:flex-row bg-[#f8fafc] dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 overflow-hidden"
+      className="min-h-screen lg:h-screen w-full flex flex-col lg:flex-row bg-[#f8fafc] dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 overflow-y-auto lg:overflow-hidden"
       style={{ '--primary-custom': primaryColor } as React.CSSProperties}
     >
 
@@ -219,7 +219,7 @@ export default function LoginPage() {
           LEFT BRAND PANE — hidden on mobile/tablet, visible lg+
           Uses overflow-hidden + flex column to never overflow
       ═══════════════════════════════════════════════ */}
-      <div className="hidden lg:flex lg:w-[55%] xl:w-[55%] flex-col bg-gradient-to-tr from-[#d2e4fc] via-[#e5f0fe] to-[#c6dcf8] relative overflow-hidden h-screen">
+      <div className="hidden lg:flex lg:w-[50%] xl:w-[54%] flex-col bg-gradient-to-tr from-[#d2e4fc] via-[#e5f0fe] to-[#c6dcf8] relative overflow-hidden h-full">
 
         {/* Dot grid top-left */}
         <div className="absolute top-0 left-0 w-36 h-36 bg-[radial-gradient(#b8d4f7_1.5px,transparent_1.5px)] [background-size:16px_16px] opacity-35 pointer-events-none m-4 z-0" />
@@ -257,32 +257,32 @@ export default function LoginPage() {
         </div>
 
         {/* Content column: logo → slogan+features → mockup */}
-        <div className="relative z-10 flex flex-col h-full px-6 xl:px-10 py-6 xl:py-8">
+        <div className="relative z-10 flex flex-col justify-between h-full px-6 xl:px-10 py-3 sm:py-4 xl:py-6">
 
           {/* Logo */}
           <div className="flex items-center gap-2 select-none shrink-0">
-            <img src="/login/logo.png" alt="Complete Business Solution Logo" className="h-10 xl:h-12 w-auto object-contain" />
-            <span className="text-xl xl:text-2xl font-extrabold text-[#0f172a] tracking-tight">
+            <img src="/login/logo.png" alt="Complete Business Solution Logo" className="h-8 xl:h-10 w-auto object-contain" />
+            <span className="text-lg xl:text-2xl font-extrabold text-[#0f172a] tracking-tight">
               Complete Business <span className="text-blue-500">Solution</span>
             </span>
           </div>
 
           {/* Slogan + Features — grows to fill middle space */}
-          <div className="flex-1 flex flex-col min-h-0 py-2 xl:py-4">
-            <div className="mt-1 mb-auto">
-              <div className="space-y-1.5">
-                <h1 className="text-[17px] lg:text-[20px] xl:text-[24px] font-extrabold tracking-tight text-[#0f172a] leading-[1.15]">
+          <div className="flex-1 flex flex-col min-h-0 py-1 xl:py-2.5 justify-center">
+            <div className="my-auto">
+              <div className="space-y-1">
+                <h1 className="text-[15px] lg:text-[17px] xl:text-[21px] font-extrabold tracking-tight text-[#0f172a] leading-[1.18]">
                   Smart <span className="text-blue-500">CRM.</span><br />
                   Stronger Relationships.<br />
                   Better Growth.
                 </h1>
-                <p className="text-slate-500 text-[10px] xl:text-xs leading-relaxed mt-1">
+                <p className="text-slate-500 text-[10px] xl:text-xs leading-relaxed mt-0.5">
                   Manage leads, contacts, projects, tasks and your entire business in one place.
                 </p>
               </div>
 
               {/* 2×2 Features Grid */}
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mt-2.5 xl:mt-4">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2 xl:mt-3">
                 {[
                   { icon: Users, title: 'Manage Contacts', desc: 'Organize and nurture customer relationships.' },
                   { icon: TrendingUp, title: 'Track Projects', desc: 'Plan, monitor and deliver projects efficiently.' },
@@ -290,14 +290,14 @@ export default function LoginPage() {
                   { icon: BarChart3, title: 'Powerful Reports', desc: 'Get real-time insights and make data-driven decisions.' },
                 ].map((item, idx) => (
                   <div key={idx} className="flex items-start gap-2">
-                    <div className="flex items-center justify-center w-7 h-7 xl:w-10 xl:h-10 rounded-full bg-white shadow-sm border border-blue-50/30 shrink-0">
-                      <div className="flex items-center justify-center w-4 h-4 xl:w-6 xl:h-6 rounded-full bg-blue-50 text-blue-600">
-                        <item.icon className="w-3 h-3 xl:w-3.5 xl:h-3.5" />
+                    <div className="flex items-center justify-center w-6 h-6 xl:w-8 xl:h-8 rounded-full bg-white shadow-sm border border-blue-50/30 shrink-0">
+                      <div className="flex items-center justify-center w-3.5 h-3.5 xl:w-5 xl:h-5 rounded-full bg-blue-50 text-blue-600">
+                        <item.icon className="w-2.5 h-2.5 xl:w-3 xl:h-3" />
                       </div>
                     </div>
                     <div>
-                      <h3 className="font-bold text-[11px] xl:text-xs text-[#0f172a]">{item.title}</h3>
-                      <p className="text-[9px] xl:text-[11px] text-slate-500 leading-snug mt-0.5">{item.desc}</p>
+                      <h3 className="font-bold text-[10px] xl:text-xs text-[#0f172a]">{item.title}</h3>
+                      <p className="text-[8.5px] xl:text-[10px] text-slate-500 leading-snug mt-0.5">{item.desc}</p>
                     </div>
                   </div>
                 ))}
@@ -305,25 +305,25 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Mock browser card — fixed height, never grows */}
-          <div className="relative w-full shrink-0">
+          {/* Mock browser card — responsive height, never grows */}
+          <div className="relative w-full shrink-0 mt-auto">
             {/* Plant decoration — sits at bottom-left of card area */}
-            <div className="absolute bottom-0 -left-4 z-10 origin-bottom-left">
+            <div className="absolute bottom-0 -left-4 z-10 origin-bottom-left scale-80 xl:scale-95">
               <PlantIcon />
             </div>
 
             {/* Mock browser card */}
-            <div className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.06)] border border-slate-100/80 overflow-hidden ml-10"
-              style={{ width: '80%' }}>
+            <div className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.06)] border border-slate-100/80 overflow-hidden ml-8 xl:ml-10"
+              style={{ width: '82%' }}>
               {/* Browser bar */}
-              <div className="bg-slate-50 border-b border-slate-100/80 px-4 py-2 flex items-center gap-1.5 select-none">
+              <div className="bg-slate-50 border-b border-slate-100/80 px-4 py-1 flex items-center gap-1.5 select-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
               </div>
 
               {/* Dashboard mockup */}
-              <div className="flex h-[150px] lg:h-[165px] xl:h-[200px] text-[10px] text-slate-650 select-none">
+              <div className="flex h-[125px] lg:h-[135px] xl:h-[175px] text-[10px] text-slate-650 select-none">
                 {/* Sidebar */}
                 <div className="w-10 xl:w-11 bg-[#161b26] flex flex-col items-center py-3.5 gap-3.5 border-r border-slate-800 shrink-0">
                   <div className="w-5 h-5 rounded-md bg-blue-600 flex items-center justify-center text-white">
@@ -427,24 +427,24 @@ export default function LoginPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════
-          RIGHT LOGIN PANE — full width on mobile/tablet, 58% on lg+
-          Scrolls independently when content is tall
+          RIGHT LOGIN PANE — full width on mobile/tablet, 46-50% on lg+
+          Strictly no scrolling on desktop, fully responsive fit
       ═══════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col bg-[#f8fafc] dark:bg-slate-950 overflow-hidden">
+      <div className="flex-1 flex flex-col justify-between bg-[#f8fafc] dark:bg-slate-950 overflow-hidden h-full min-h-screen lg:min-h-0 lg:h-screen">
 
-        {/* Inner wrapper: centers card vertically with padding */}
-        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 md:px-16 lg:px-10 xl:px-14 py-8 md:py-12">
+        {/* Inner wrapper: vertically centers the card without overflow */}
+        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 py-2 sm:py-3 w-full min-h-0">
 
           {/* Mobile logo — only shown below lg */}
-          <div className="flex lg:hidden items-center gap-2 mb-6 select-none">
-            <img src="/login/logo.png" alt="Complete Business Solution Logo" className="w-10 h-10 object-contain" />
-            <span className="text-xl font-extrabold text-[#0f172a] dark:text-slate-100 tracking-tight">
+          <div className="flex lg:hidden items-center gap-2 mb-3 select-none">
+            <img src="/login/logo.png" alt="Complete Business Solution Logo" className="h-8 sm:h-9 w-auto object-contain" />
+            <span className="text-base sm:text-lg font-extrabold text-[#0f172a] dark:text-slate-100 tracking-tight">
               Complete Business <span className="text-blue-600">Solution</span>
             </span>
           </div>
 
           {/* Form card */}
-          <div className="w-full max-w-[380px] md:max-w-[420px] lg:max-w-[400px] xl:max-w-[420px] bg-white dark:bg-slate-900 rounded-[24px] xl:rounded-[28px] shadow-[0_20px_50px_rgba(0,0,0,0.035)] border border-slate-100/80 dark:border-slate-800 p-6 sm:p-8 xl:p-10">
+          <div className="w-full max-w-[340px] sm:max-w-[370px] xl:max-w-[400px] bg-white dark:bg-slate-900 rounded-[20px] sm:rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.035)] border border-slate-100/80 dark:border-slate-800 p-4 sm:p-5 lg:p-5.5 xl:p-7 transition-all">
 
             <AnimatePresence mode="wait">
               {forgotStep === 'none' ? (
@@ -455,25 +455,25 @@ export default function LoginPage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.25 }}
                 >
-                  <h2 className="text-xl sm:text-2xl xl:text-3xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Welcome Back!</h2>
-                  <p className="text-slate-400 text-xs xl:text-sm mt-2 mb-6 text-center font-medium">Login to your Complete Business Solution account</p>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Welcome Back!</h2>
+                  <p className="text-slate-400 text-xs mt-0.5 mb-3 sm:mb-4 text-center font-medium">Login to your Complete Business Solution account</p>
 
-                  <form onSubmit={handleLogin} className="space-y-4">
-                    <div className="space-y-1.5">
+                  <form onSubmit={handleLogin} className="space-y-2.5 sm:space-y-3">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">Username</label>
                       <div className="relative">
-                        <User className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <User className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                           type="text"
                           placeholder="Enter your username"
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
-                          className="w-full pl-11 pr-4 py-2.5 h-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                          className="w-full pl-9 pr-4 py-1.5 h-9 sm:h-9.5 xl:h-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <div className="flex justify-between items-center">
                         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">Password</label>
                         <button
@@ -485,20 +485,20 @@ export default function LoginPage() {
                         </button>
                       </div>
                       <div className="relative">
-                        <Lock className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                           type={showPassword ? 'text' : 'password'}
                           placeholder="Enter your password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          className="w-full pl-11 pr-11 py-2.5 h-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                          className="w-full pl-9 pr-9 py-1.5 h-9 sm:h-9.5 xl:h-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
@@ -517,25 +517,20 @@ export default function LoginPage() {
                     </div>
 
                     {error && (
-                      <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{error}</span>
+                      <div className="p-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="leading-tight">{error}</span>
                       </div>
                     )}
 
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold py-2.5 rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-2 disabled:opacity-75"
+                      className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-1 disabled:opacity-75 h-9 sm:h-9.5 xl:h-10 flex items-center justify-center"
                     >
                       {loading ? 'Logging in...' : 'Login'}
                     </button>
                   </form>
-
-
-
-
-
                 </motion.div>
 
               ) : forgotStep === 'email' ? (
@@ -546,35 +541,35 @@ export default function LoginPage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.25 }}
                 >
-                  <h2 className="text-xl sm:text-2xl xl:text-3xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Forgot Password</h2>
-                  <p className="text-slate-400 text-xs xl:text-sm mt-1.5 mb-6 text-center font-medium">Enter your email to receive an OTP code</p>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Forgot Password</h2>
+                  <p className="text-slate-400 text-xs mt-0.5 mb-3 sm:mb-4 text-center font-medium">Enter your email to receive an OTP code</p>
 
-                  <form onSubmit={handleGenerateOTP} className="space-y-4">
-                    <div className="space-y-1.5">
+                  <form onSubmit={handleGenerateOTP} className="space-y-2.5 sm:space-y-3">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">Email Address</label>
                       <div className="relative">
-                        <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                           type="email"
                           placeholder="you@example.com"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          className="w-full pl-11 pr-4 py-2.5 h-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                          className="w-full pl-9 pr-4 py-1.5 h-9 sm:h-9.5 xl:h-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400"
                         />
                       </div>
                     </div>
                     {error && (
-                      <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{error}</span>
+                      <div className="p-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="leading-tight">{error}</span>
                       </div>
                     )}
-                    <button type="submit" className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold py-2.5 rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-2">
+                    <button type="submit" className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-1 h-9 sm:h-9.5 xl:h-10 flex items-center justify-center">
                       Generate OTP
                     </button>
                   </form>
 
-                  <div className="text-center mt-6">
+                  <div className="text-center mt-3">
                     <button type="button" onClick={() => { setError(''); setForgotStep('none'); }}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer transition-colors">
                       <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
@@ -590,38 +585,38 @@ export default function LoginPage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.25 }}
                 >
-                  <h2 className="text-xl sm:text-2xl xl:text-3xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Reset Password</h2>
-                  <p className="text-slate-400 text-xs xl:text-sm mt-1.5 mb-6 text-center font-medium">Choose a strong password for your account</p>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#0f172a] dark:text-slate-100 text-center tracking-tight">Reset Password</h2>
+                  <p className="text-slate-400 text-xs mt-0.5 mb-3 sm:mb-4 text-center font-medium">Choose a strong password for your account</p>
 
-                  <form onSubmit={handleSavePassword} className="space-y-4">
-                    <div className="space-y-1.5">
+                  <form onSubmit={handleSavePassword} className="space-y-2.5 sm:space-y-3">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">New Password</label>
                       <div className="relative">
-                        <LockKeyhole className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <LockKeyhole className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input type="password" placeholder="Enter new password" value={password} onChange={(e) => setPassword(e.target.value)}
-                          className="w-full pl-11 pr-4 py-2.5 h-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400" />
+                          className="w-full pl-9 pr-4 py-1.5 h-9 sm:h-9.5 xl:h-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400" />
                       </div>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">Confirm Password</label>
                       <div className="relative">
-                        <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full pl-11 pr-4 py-2.5 h-11 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400" />
+                          className="w-full pl-9 pr-4 py-1.5 h-9 sm:h-9.5 xl:h-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30 transition-all text-xs xl:text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400" />
                       </div>
                     </div>
                     {error && (
-                      <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{error}</span>
+                      <div className="p-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-xl flex items-start gap-2 text-rose-600 dark:text-rose-400 text-xs">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="leading-tight">{error}</span>
                       </div>
                     )}
-                    <button type="submit" className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold py-2.5 rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-2">
+                    <button type="submit" className="w-full bg-[#0062ff] hover:bg-[#0052df] active:scale-[0.99] text-white font-semibold rounded-full shadow-lg shadow-blue-500/10 transition-all text-xs xl:text-sm cursor-pointer mt-1 h-9 sm:h-9.5 xl:h-10 flex items-center justify-center">
                       Save Password
                     </button>
                   </form>
 
-                  <div className="text-center mt-6">
+                  <div className="text-center mt-3">
                     <button type="button" onClick={() => { setError(''); setForgotStep('none'); }}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer transition-colors">
                       <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
@@ -633,14 +628,14 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer — always at the bottom of the right pane */}
-        <div className="w-full px-4 sm:px-8 md:px-16 lg:px-10 xl:px-14 py-4 border-t border-slate-100 dark:border-slate-900">
-          <div className="max-w-[440px] md:max-w-[480px] lg:max-w-[460px] xl:max-w-[500px] mx-auto flex flex-col sm:flex-row justify-between items-center gap-2 text-[10px] text-slate-400 font-medium select-none">
-            <span>&copy; 2030 Complete Business Solution. All rights reserved.</span>
-            <div className="flex gap-4">
-              <a href="#" className="hover:text-slate-600 transition-colors">Privacy Policy</a>
-              <span>|</span>
-              <a href="#" className="hover:text-slate-600 transition-colors">Terms of Service</a>
+        {/* Footer — always visible at the bottom of the right pane */}
+        <div className="w-full px-4 sm:px-6 py-2 xl:py-2.5 border-t border-slate-100 dark:border-slate-900 shrink-0 bg-transparent">
+          <div className="max-w-[340px] sm:max-w-[370px] xl:max-w-[400px] mx-auto flex flex-col sm:flex-row justify-between items-center gap-1 text-[10px] xl:text-[11px] text-slate-400 font-medium select-none text-center sm:text-left">
+            <span>&copy; {new Date().getFullYear()} Complete Business Solution.</span>
+            <div className="flex items-center gap-3">
+              <a href="#" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Privacy Policy</a>
+              <span>•</span>
+              <a href="#" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Terms of Service</a>
             </div>
           </div>
         </div>

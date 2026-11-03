@@ -441,16 +441,6 @@ export default function LoyaltyRulesPage() {
             </table>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="pt-6 pb-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200/80 dark:border-slate-800 gap-2">
-          <div>
-            Copyright <span className="text-sky-500 font-medium">CRMFARM</span> © 2025 - 2026
-          </div>
-          <div>
-            Developed by <span className="text-sky-500 font-medium">@ Foyer Technology</span>
-          </div>
-        </div>
       </div>
 
       {/* Modal for Create/Edit */}

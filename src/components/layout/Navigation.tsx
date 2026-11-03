@@ -451,7 +451,7 @@ export const menuGroups: MenuGroup[] = [
           },
           {
             label: "Tally Sync Report",
-            path: "/analytics/reports?report=tally-sync",
+            path: "/reports/TallySyncReport",
             permissionCode: "reports.tally_sync_report.overview"
           }
         ]

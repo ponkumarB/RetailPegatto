@@ -1,6 +1,6 @@
 'use client';
 
-import { Menu, Bell, Sun, Moon, Monitor, Sparkles, Video, Megaphone, LayoutGrid, HelpCircle, ExternalLink, Copy, Check, MessageSquare, CalendarClock, RefreshCw, ClipboardCheck, Mail } from 'lucide-react';
+import { Menu, Bell, Sun, Moon, Monitor, Sparkles, Video, Megaphone, LayoutGrid, HelpCircle, ExternalLink, Copy, Check, MessageSquare, CalendarClock, RefreshCw, ClipboardCheck, Mail, Landmark } from 'lucide-react';
 import { fetchApprovedList } from '@/service/api/approvals/api';
 import { useStore } from '@/store/useStore';
 import { useVideoCallStore } from '@/store/useVideoCallStore';
@@ -64,6 +64,7 @@ import { Navigation } from './Navigation';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { fetchFromApi } from '@/service/apiClient';
 import MailConfigurationModal from './MailConfigurationModal';
+import TallyConfigurationModal from './TallyConfigurationModal';
 
 export function Header() {
   const { toggleSidebar, primaryColor, mode, setMode, setPrimaryColor, user } = useStore();
@@ -88,6 +89,7 @@ export function Header() {
   const [headerUserId, setHeaderUserId] = useState<string>('');
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
   const [isMailConfigOpen, setIsMailConfigOpen] = useState(false);
+  const [isTallyConfigOpen, setIsTallyConfigOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -663,6 +665,10 @@ export function Header() {
                   <Mail className="h-4 w-4 text-slate-500" />
                   <span>Mail Configuration</span>
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsTallyConfigOpen(true)} className="gap-2 cursor-pointer">
+                  <Landmark className="h-4 w-4 text-slate-500" />
+                  <span>Tally Configuration</span>
+                </DropdownMenuItem>
                 {/* <DropdownMenuItem onClick={() => router.push('/customization/customize-forms')}>Customize Forms</DropdownMenuItem> */}
 
                 <DropdownMenuSub>
@@ -748,6 +754,7 @@ export function Header() {
         </div>
       </div>
       <MailConfigurationModal isOpen={isMailConfigOpen} onClose={() => setIsMailConfigOpen(false)} />
+      <TallyConfigurationModal isOpen={isTallyConfigOpen} onClose={() => setIsTallyConfigOpen(false)} />
     </header>
   );
 }

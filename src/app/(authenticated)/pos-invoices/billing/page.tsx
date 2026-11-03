@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   usePosInvoiceStore,
   PosProduct,
@@ -49,13 +49,20 @@ interface ProductRow {
   amount: number;
 }
 
-export default function PosBillingPage() {
+function PosBillingContent() {
   const router = useRouter();
-  const { products, addProduct, addCustomInvoice, loadProducts } = usePosInvoiceStore();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('id');
+  const editInvoiceNum = searchParams.get('invoiceNumber');
+  const isEditMode = Boolean(editId || editInvoiceNum);
+  const [loadedEditId, setLoadedEditId] = useState<string | null>(null);
+
+  const { products, addProduct, addCustomInvoice, loadProducts, invoices, loadInvoices } = usePosInvoiceStore();
   const [accounts, setAccounts] = useState<any[]>([]);
 
   useEffect(() => {
     loadProducts();
+    loadInvoices();
     import('@/service/apiClient').then(({ fetchFromApi }) => {
       fetchFromApi('/user/AccountFullList/?Is_Deleted=False', { method: 'GET' })
         .then((res: any) => {
@@ -64,7 +71,92 @@ export default function PosBillingPage() {
         })
         .catch(() => {});
     });
-  }, [loadProducts]);
+  }, [loadProducts, loadInvoices]);
+
+  // Load existing invoice data in Edit Mode
+  useEffect(() => {
+    if (!isEditMode || loadedEditId === (editId || editInvoiceNum)) return;
+
+    let target = invoices.find(
+      (inv) => inv.id === editId || inv.invoiceNumber === editInvoiceNum || inv.invoiceNumber === editId
+    );
+
+    if (!target && typeof window !== 'undefined') {
+      try {
+        const local = JSON.parse(localStorage.getItem('pegatto_pos_invoices') || '[]');
+        if (Array.isArray(local)) {
+          target = local.find(
+            (inv: any) => inv.id === editId || inv.invoiceNumber === editInvoiceNum || inv.invoiceNumber === editId
+          );
+        }
+      } catch (e) {}
+    }
+
+    if (target) {
+      if (target.status?.toLowerCase() === 'paid') {
+        toast.error('Paid invoices cannot be edited.');
+        router.push('/pos-invoices');
+        return;
+      }
+
+      setLoadedEditId(target.id || target.invoiceNumber);
+      setBillNumber(target.invoiceNumber);
+      if (target.date) setBillDate(target.date);
+      if (target.customerName) setCustomerName(target.customerName);
+      if (target.customerPhone) setCustomerMobile(target.customerPhone);
+      if (target.cashierName) setSalesman(target.cashierName);
+      if (target.paymentMethod) setPaymentMethod(target.paymentMethod as any);
+
+      if (target.delivery && target.delivery !== 'Store Pickup') {
+        setIsHomeDelivery(true);
+        setDeliveryAddress(target.delivery);
+      }
+
+      if (target.discountAmount && target.discountAmount > 0) {
+        setIsDiscountChecked(true);
+        setSummaryDiscount(target.discountAmount);
+      }
+
+      if (target.amountReceived !== undefined && target.amountReceived !== null) {
+        setAmountReceived(target.amountReceived);
+      }
+
+      if (target.items && target.items.length > 0) {
+        const mappedRows: ProductRow[] = target.items.map((it, idx) => ({
+          id: `row-${idx + 1}`,
+          sNo: String(idx + 1),
+          productId: it.product?.id || `item-${idx + 1}`,
+          productCode: it.product?.sku || it.product?.barcode || `SKU-${idx + 1}`,
+          productName: it.product?.name || `Product ${idx + 1}`,
+          offers: [],
+          qty: it.quantity || 1,
+          unit: it.product?.unit || 'Pcs',
+          rate: it.rate || 0,
+          discount: it.discountPercent || 0,
+          gst: it.product?.taxRate || 0,
+          amount: it.total || (it.rate * it.quantity)
+        }));
+
+        while (mappedRows.length < 3) {
+          mappedRows.push({
+            id: `row-${mappedRows.length + 1}`,
+            sNo: String(mappedRows.length + 1),
+            productId: '',
+            productCode: '',
+            productName: '',
+            offers: [],
+            qty: '',
+            unit: '',
+            rate: '',
+            discount: 0,
+            gst: 0,
+            amount: 0
+          });
+        }
+        setRows(mappedRows);
+      }
+    }
+  }, [isEditMode, editId, editInvoiceNum, invoices, loadedEditId, router]);
 
   // Header & Info States
   const storeName = 'Thoraipakkam store';
@@ -432,7 +524,7 @@ export default function PosBillingPage() {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     const newInvoiceObj: PosInvoice = {
-      id: `inv-${Date.now()}`,
+      id: editId || `inv-${Date.now()}`,
       invoiceNumber: billNumber,
       date: billDate,
       time: timeStr,
@@ -457,7 +549,7 @@ export default function PosBillingPage() {
     addCustomInvoice(newInvoiceObj);
     setSavedInvoice(newInvoiceObj);
     setShowReceiptModal(true);
-    toast.success(`Invoice ${billNumber} created successfully!`);
+    toast.success(isEditMode ? `Invoice ${billNumber} updated successfully!` : `Invoice ${billNumber} created successfully!`);
   };
 
   // Calculator State & Logic
@@ -536,7 +628,7 @@ export default function PosBillingPage() {
               <ArrowLeft className="w-5 h-5 text-white" />
             </button>
             <h1 className="text-xl sm:text-2xl font-extrabold text-[#0F3B2C] tracking-tight">
-              Create New Bill - {storeName}
+              {isEditMode ? `Edit Invoice - ${billNumber}` : `Create New Bill - ${storeName}`}
             </h1>
           </div>
 
@@ -1310,7 +1402,7 @@ export default function PosBillingPage() {
             onClick={handleSaveInvoice}
             className="bg-[#0F3B2C] hover:bg-[#1a5d48] text-white px-5 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
           >
-            <CheckCircle2 className="w-4 h-4" /> Save Invoice
+            <CheckCircle2 className="w-4 h-4" /> {isEditMode ? 'Update Invoice' : 'Save Invoice'}
           </button>
           <button
             type="button"
@@ -1321,18 +1413,6 @@ export default function PosBillingPage() {
           </button>
         </div>
       </div>
-
-      {/* Footer matching original app */}
-      <footer className="border-t border-gray-200 bg-white py-3 px-4 sm:px-6">
-        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-          <div>
-            Copyright <span className="text-[#0284c7] font-semibold">CRMFARM</span> © 2025 - 2026
-          </div>
-          <div>
-            Developed by <span className="text-[#0284c7] font-semibold">@ Foyer Technology</span>
-          </div>
-        </div>
-      </footer>
 
       {/* Calculator Modal */}
       {showCalculator && (
@@ -1660,5 +1740,18 @@ export default function PosBillingPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function PosBillingPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center gap-3">
+        <div className="w-8 h-8 border-3 border-[#0F3B2C] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-semibold text-slate-500">Loading Billing Terminal...</p>
+      </div>
+    }>
+      <PosBillingContent />
+    </Suspense>
   );
 }

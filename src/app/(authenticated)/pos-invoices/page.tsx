@@ -155,7 +155,12 @@ export default function PosInvoicesListPage() {
   };
 
   const handleEdit = (invoice: PosInvoice) => {
-    router.push('/pos-invoices/billing');
+    if (invoice.status?.toLowerCase() === 'paid') {
+      toast.warning('Paid bills cannot be edited.');
+      return;
+    }
+    const idParam = invoice.id || invoice.invoiceNumber;
+    router.push(`/pos-invoices/billing?id=${encodeURIComponent(idParam)}&invoiceNumber=${encodeURIComponent(invoice.invoiceNumber)}`);
   };
 
   const handleExportCSV = () => {
@@ -590,12 +595,14 @@ export default function PosInvoicesListPage() {
                           <Eye className="h-4 w-4 text-slate-500" /> View Receipt
                         </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                          className="gap-2 cursor-pointer text-xs font-medium px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
-                          onClick={() => handleEdit(inv)}
-                        >
-                          <SquarePen className="h-4 w-4 text-slate-500" /> Edit Invoice
-                        </DropdownMenuItem>
+                        {inv.status?.toLowerCase() !== 'paid' && (
+                          <DropdownMenuItem
+                            className="gap-2 cursor-pointer text-xs font-medium px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+                            onClick={() => handleEdit(inv)}
+                          >
+                            <SquarePen className="h-4 w-4 text-slate-500" /> Edit Invoice
+                          </DropdownMenuItem>
+                        )}
 
                         <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800 my-1" />
 
@@ -623,17 +630,7 @@ export default function PosInvoicesListPage() {
         </div>
       </div>
 
-      {/* 4. Footer */}
-      <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 pt-3 border-t border-slate-100 dark:border-slate-800">
-        <div>
-          Copyright <span className="text-[#0ea5e9] font-medium">CRMFARM</span> © 2025 - 2026
-        </div>
-        <div>
-          Developed by @ <span className="text-[#0ea5e9] font-medium">Foyer Technology</span>
-        </div>
-      </div>
-
-      {/* 5. Thermal Receipt Print Modal */}
+      {/* Thermal Receipt Print Modal */}
       <ReceiptModal
         isOpen={isReceiptOpen}
         onClose={() => setIsReceiptOpen(false)}

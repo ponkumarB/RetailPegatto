@@ -63,6 +63,7 @@ const categoryForecast = [
 
 const StatCard = ({ title, value, change, icon: Icon, color, suffix = '', unit = '' }) => {
   const isPositive = change > 0;
+  const isNeutral = change === 0;
   
   // Custom logic for isGood (if churn/error/low stock, lower is better)
   const isGood = title.toLowerCase().includes('error') ? change < 0 : change > 0;
@@ -77,30 +78,43 @@ const StatCard = ({ title, value, change, icon: Icon, color, suffix = '', unit =
   };
 
   return (
-    <Card className="rounded-2xl border border-slate-100 shadow-sm bg-white dark:bg-slate-950 hover:shadow-md transition-all">
-      <CardContent className="p-5 flex items-center justify-between gap-3 h-full">
-        <div className="flex flex-col justify-center h-full min-w-0 py-1">
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 leading-snug line-clamp-2">{title}</p>
-          <div className="mt-2 mb-2">
-            <h3 className="text-2xl xl:text-[28px] font-bold text-slate-900 dark:text-white leading-none truncate">
+    <Card className="rounded-xl border border-slate-100 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 hover:shadow-sm transition-all min-w-0">
+      <CardContent className="p-3.5 sm:p-4 flex items-center justify-between gap-2.5 h-full">
+        <div className="flex flex-col justify-center min-w-0 flex-1">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">{title}</p>
+          <div className="mt-1 mb-1">
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-none truncate">
               {formatValue()}{suffix}
             </h3>
           </div>
-          <div className="flex items-center gap-1.5 mt-auto">
-            {isPositive ? (
-              <ArrowUpRight className={`h-4 w-4 shrink-0 ${isGood ? 'text-emerald-500' : 'text-rose-500'}`} />
+          <div className="flex items-center gap-1 mt-auto">
+            {isNeutral ? (
+              <span className="text-[11px] sm:text-xs font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                No change from last month
+              </span>
+            ) : isPositive ? (
+              <>
+                <ArrowUpRight className={`h-3.5 w-3.5 shrink-0 ${isGood ? 'text-emerald-500' : 'text-rose-500'}`} />
+                <span className={`text-[11px] sm:text-xs font-medium whitespace-nowrap ${isGood ? 'text-emerald-600 dark:text-emerald-500' : 'text-rose-600 dark:text-rose-500'}`}>
+                  {Math.abs(change)}% from last month
+                </span>
+              </>
             ) : (
-              <ArrowDownRight className={`h-4 w-4 shrink-0 ${isGood ? 'text-emerald-500' : 'text-rose-500'}`} />
+              <>
+                <ArrowDownRight className={`h-3.5 w-3.5 shrink-0 ${isGood ? 'text-emerald-500' : 'text-rose-500'}`} />
+                <span className={`text-[11px] sm:text-xs font-medium whitespace-nowrap ${isGood ? 'text-emerald-600 dark:text-emerald-500' : 'text-rose-600 dark:text-rose-500'}`}>
+                  {Math.abs(change)}% from last month
+                </span>
+              </>
             )}
-            <span className={`text-xs sm:text-sm font-medium whitespace-nowrap ${isGood ? 'text-emerald-600 dark:text-emerald-500' : 'text-rose-600 dark:text-rose-500'}`}>
-              {Math.abs(change)}% from last month
-            </span>
           </div>
         </div>
-        
-        <div className="flex-shrink-0 flex items-center justify-center">
-          <div className={`flex items-center justify-center w-12 h-12 rounded-full ${isColorClass ? color : ''}`} style={!isColorClass ? { backgroundColor: `${color}15`, color: color } : {}}>
-            <Icon className="h-6 w-6" strokeWidth={2} />
+        <div className="shrink-0 flex items-center justify-center">
+          <div
+            className={`flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${isColorClass ? color : ''}`}
+            style={!isColorClass ? { backgroundColor: `${color}15`, color: color } : {}}
+          >
+            <Icon className="h-5 w-5" strokeWidth={2} />
           </div>
         </div>
       </CardContent>
@@ -121,33 +135,33 @@ export default function AIForecastDashboard() {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-[1600px] mx-auto space-y-6 p-6"
+      className="max-w-[1600px] mx-auto space-y-3.5 sm:space-y-4 p-3 sm:p-4.5 lg:p-5 min-w-0"
     >
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Target className="h-6 w-6 text-purple-500" />
-            AI Forecast Dashboard
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Target className="h-5 w-5 sm:h-6 sm:w-6 text-purple-500 shrink-0" />
+            <span>AI Forecast Dashboard</span>
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Predictive analytics for returns and refunds forecasting
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Refresh Models
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <Button variant="outline" size="sm" className="h-8 px-2.5 sm:px-3 text-xs gap-1.5 border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer">
+            <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+            <span>Refresh Models</span>
           </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Download className="h-4 w-4" />
-            Export Forecast
+          <Button variant="outline" size="sm" className="h-8 px-2.5 sm:px-3 text-xs gap-1.5 border-slate-200 dark:border-slate-800 shadow-xs cursor-pointer">
+            <Download className="h-3.5 w-3.5 text-slate-500" />
+            <span>Export Forecast</span>
           </Button>
         </div>
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         <StatCard
           title="Forecast Accuracy"
           value={94.2}
@@ -183,16 +197,16 @@ export default function AIForecastDashboard() {
       </div>
 
       {/* Custom Tabs */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* Tab Navigation */}
-        <div className="flex gap-2 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg">
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl w-full sm:w-fit overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                 activeTab === tab.id
-                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -203,55 +217,67 @@ export default function AIForecastDashboard() {
 
         {/* Tab Content */}
         {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               {/* Forecast vs Actual */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm font-semibold">Forecast vs Actual Returns</CardTitle>
+              <Card className="border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs">
+                <CardHeader className="p-3.5 sm:p-4 pb-1">
+                  <CardTitle className="text-xs sm:text-sm font-bold text-slate-850 dark:text-slate-100 flex items-center justify-between">
+                    <span>Forecast vs Actual Returns</span>
+                    <Badge variant="outline" className="text-[10px] font-semibold text-purple-600 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800">
+                      AI Projected
+                    </Badge>
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <RechartsLineChart data={forecastData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <RechartsTooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="actual" stroke="#3b82f6" strokeWidth={2} name="Actual" connectNulls={false} />
-                      <Line type="monotone" dataKey="predicted" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" name="AI Predicted" />
-                    </RechartsLineChart>
-                  </ResponsiveContainer>
+                <CardContent className="p-3 sm:p-4 pt-2">
+                  <div className="w-full h-[260px] sm:h-[280px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLineChart data={forecastData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.6} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                        <RechartsTooltip />
+                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
+                        <Line type="monotone" dataKey="actual" stroke="#3b82f6" strokeWidth={2} name="Actual" connectNulls={false} dot={{ r: 3 }} />
+                        <Line type="monotone" dataKey="predicted" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" name="AI Predicted" dot={{ r: 3 }} />
+                      </RechartsLineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </CardContent>
               </Card>
 
               {/* Category Forecast */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm font-semibold">Category-wise Forecast</CardTitle>
+              <Card className="border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs">
+                <CardHeader className="p-3.5 sm:p-4 pb-1">
+                  <CardTitle className="text-xs sm:text-sm font-bold text-slate-850 dark:text-slate-100 flex items-center justify-between">
+                    <span>Category-wise Forecast</span>
+                    <span className="text-[11px] font-normal text-slate-400">Next 90 Days</span>
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
+                <CardContent className="p-3 sm:p-4 pt-2">
+                  <div className="space-y-2">
                     {categoryForecast.map((item) => (
-                      <div key={item.category} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full bg-purple-500" />
-                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{item.category}</span>
+                      <div key={item.category} className="flex items-center justify-between p-2.5 bg-slate-50/80 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/60 rounded-lg">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{item.category}</span>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3 shrink-0">
                           <div className="text-right">
-                            <p className="text-xs text-slate-500">Current</p>
-                            <p className="text-sm font-bold text-slate-900 dark:text-white">{item.current}</p>
+                            <p className="text-[10px] text-slate-400">Current</p>
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{item.current}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs text-slate-500">Forecast</p>
-                            <p className="text-sm font-bold text-purple-600">{item.forecast}</p>
+                            <p className="text-[10px] text-purple-500 font-medium">Forecast</p>
+                            <p className="text-xs font-bold text-purple-600 dark:text-purple-400">{item.forecast}</p>
                           </div>
-                          {item.trend === 'up' ? (
-                            <TrendingUp className="h-4 w-4 text-emerald-500" />
-                          ) : (
-                            <TrendingDown className="h-4 w-4 text-amber-500" />
-                          )}
+                          <div className="w-5 flex justify-center">
+                            {item.trend === 'up' ? (
+                              <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                            ) : (
+                              <TrendingDown className="h-3.5 w-3.5 text-amber-500" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -263,27 +289,29 @@ export default function AIForecastDashboard() {
         )}
 
         {activeTab === 'accuracy' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Model Accuracy Metrics</CardTitle>
+          <Card className="border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs">
+            <CardHeader className="p-3.5 sm:p-4 pb-1">
+              <CardTitle className="text-xs sm:text-sm font-bold text-slate-850 dark:text-slate-100">
+                Model Accuracy Metrics
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-950 rounded-xl">
-                  <div className="text-2xl font-bold text-emerald-600">94.2%</div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Overall Accuracy</div>
+            <CardContent className="p-3.5 sm:p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+                <div className="text-center p-3 sm:p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <div className="text-xl sm:text-2xl font-bold text-emerald-600">94.2%</div>
+                  <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Overall Accuracy</div>
                 </div>
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-950 rounded-xl">
-                  <div className="text-2xl font-bold text-blue-600">0.89</div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">F1 Score</div>
+                <div className="text-center p-3 sm:p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <div className="text-xl sm:text-2xl font-bold text-blue-600">0.89</div>
+                  <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">F1 Score</div>
                 </div>
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-950 rounded-xl">
-                  <div className="text-2xl font-bold text-purple-600">87%</div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Precision</div>
+                <div className="text-center p-3 sm:p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <div className="text-xl sm:text-2xl font-bold text-purple-600">87%</div>
+                  <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Precision</div>
                 </div>
-                <div className="text-center p-4 bg-slate-50 dark:bg-slate-950 rounded-xl">
-                  <div className="text-2xl font-bold text-amber-600">91%</div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Recall</div>
+                <div className="text-center p-3 sm:p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <div className="text-xl sm:text-2xl font-bold text-amber-600">91%</div>
+                  <div className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Recall</div>
                 </div>
               </div>
             </CardContent>
@@ -291,21 +319,25 @@ export default function AIForecastDashboard() {
         )}
 
         {activeTab === 'trends' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Forecast Confidence Trends</CardTitle>
+          <Card className="border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs">
+            <CardHeader className="p-3.5 sm:p-4 pb-1">
+              <CardTitle className="text-xs sm:text-sm font-bold text-slate-850 dark:text-slate-100">
+                Forecast Confidence Trends
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={400}>
-                <AreaChart data={forecastData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <RechartsTooltip />
-                  <Legend />
-                  <Area type="monotone" dataKey="confidence" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} name="Model Confidence %" />
-                </AreaChart>
-              </ResponsiveContainer>
+            <CardContent className="p-3 sm:p-4">
+              <div className="w-full h-[280px] sm:h-[350px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={forecastData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.6} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                    <RechartsTooltip />
+                    <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
+                    <Area type="monotone" dataKey="confidence" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.4} name="Model Confidence %" dot={{ r: 3 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         )}

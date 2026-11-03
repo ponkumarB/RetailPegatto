@@ -9,10 +9,17 @@ import {
   TrendingUp, Sparkles, Users, FolderKanban,
   Download, Printer, AlertCircle, HelpCircle,
   BarChart3,
-  ChevronDown
+  ChevronDown,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Clock
 } from 'lucide-react';
 import { fetchDropDownList } from '@/service/api/Resource/api';
-import { formatPersonName } from '@/lib/utils';
+import { formatPersonName, cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { syncInvoiceToTally } from '@/api/transactions';
 
 interface ReportColumn {
   key: string;
@@ -693,6 +700,28 @@ function ReportsPage() {
   const [selectedSalesId, setSelectedSalesId] = useState<string>('all');
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [syncingTallyId, setSyncingTallyId] = useState<string | null>(null);
+
+  const handleSyncSingleInvoice = async (invoiceId: string) => {
+    if (!invoiceId) return;
+    setSyncingTallyId(invoiceId);
+    try {
+      const res = await syncInvoiceToTally(invoiceId);
+      if (res?.success === true || res?.status === 200 || res?.status === 'success') {
+        toast.success(res?.message || `Invoice ${invoiceId} synced to Tally successfully!`);
+      } else if (res?.error || res?.details || res?.message) {
+        toast.error(res?.error || res?.details || res?.message || `Failed to sync invoice ${invoiceId}`);
+      } else {
+        toast.success(`Invoice ${invoiceId} synced to Tally successfully!`);
+      }
+      handleFetchReport();
+    } catch (err: any) {
+      console.error('Tally Sync Error:', err);
+      toast.error(err?.data?.error || err?.data?.message || err?.message || 'Tally Sync Server Error');
+    } finally {
+      setSyncingTallyId(null);
+    }
+  };
 
   // Find currently active report config
   const selectedReport = REPORTS.find(r => r.id === selectedReportId) || REPORTS[0];
@@ -874,23 +903,113 @@ function ReportsPage() {
     window.print();
   };
 
+  const renderReportStatusBadge = (status: any, isSyncing: boolean = false, errorMsg?: string) => {
+    if (isSyncing) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 shadow-xs">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600 dark:text-blue-400" />
+          <span>SYNCING...</span>
+        </span>
+      );
+    }
+
+    const str = String(status || '').trim();
+    const lower = str.toLowerCase();
+
+    // Success / Synced / Active / Paid / Won / Completed / Approved
+    if (lower === 'success' || lower === 'synced' || lower === 'active' || lower === 'paid' || lower === 'won' || lower === 'completed' || lower === 'approved') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-500 text-white shrink-0" />
+          <span>{str ? str.toUpperCase() : 'SYNCED'}</span>
+        </span>
+      );
+    }
+
+    // Failed / Error / Inactive / Unpaid / Lost / Rejected / Delayed
+    if (lower === 'failed' || lower === 'error' || lower === 'inactive' || lower === 'unpaid' || lower === 'closed lost' || lower === 'lost' || lower === 'rejected' || lower === 'delayed') {
+      return (
+        <span
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shadow-xs"
+          title={errorMsg || 'Failed'}
+        >
+          <XCircle className="w-3.5 h-3.5 fill-rose-500 text-white shrink-0" />
+          <span>{str ? str.toUpperCase() : 'FAILED'}</span>
+        </span>
+      );
+    }
+
+    // Pending / Draft / In Progress / Open / Due
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 shadow-xs">
+        <AlertCircle className="w-3.5 h-3.5 fill-amber-500 text-white shrink-0 animate-pulse" />
+        <span>{str ? str.toUpperCase() : 'PENDING'}</span>
+      </span>
+    );
+  };
+
   const tableColumns = useMemo(() => {
-    return selectedReport.columns.map((col) => ({
+    const cols: any[] = selectedReport.columns.map((col) => ({
       key: col.key,
       header: col.label,
       sortable: true,
       render: (row: any) => {
+        // Render rich, distinct badge for status columns
+        if (
+          col.key === 'Tally_Sync_Status' ||
+          col.key === 'Status' ||
+          col.key === 'status' ||
+          col.key.toLowerCase().endsWith('_status') ||
+          col.key.toLowerCase().includes('status')
+        ) {
+          const val = row[col.key] || (col.key === 'Tally_Sync_Status' ? 'PENDING' : '');
+          const isSyncing = syncingTallyId === row.Invoice_Id;
+          const errorMsg = row.Tally_Sync_Error;
+          return renderReportStatusBadge(val, isSyncing, errorMsg);
+        }
+
         const val = row[col.key];
         return col.format ? col.format(val, row) : val !== undefined && val !== null ? String(val) : '-';
       }
     }));
-  }, [selectedReport]);
+
+    if (selectedReportId === 'tally-sync') {
+      cols.push({
+        key: 'actions',
+        header: 'Actions',
+        sortable: false,
+        render: (row: any) => {
+          const isSynced = row.Tally_Sync_Status === 'SUCCESS';
+          const isSyncing = syncingTallyId === row.Invoice_Id;
+          return (
+            <button
+              type="button"
+              onClick={() => handleSyncSingleInvoice(row.Invoice_Id)}
+              disabled={isSyncing}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer",
+                isSynced
+                  ? "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+                  : "bg-[#2e7d32] hover:bg-[#256628] text-white",
+                isSyncing && "opacity-70 cursor-not-allowed"
+              )}
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isSyncing && "animate-spin")} />
+              <span>{isSyncing ? 'Syncing...' : isSynced ? 'Re-sync' : 'Sync To Tally'}</span>
+            </button>
+          );
+        }
+      });
+    }
+
+    return cols;
+  }, [selectedReport, selectedReportId, syncingTallyId]);
 
   // Border radius style helper representing exactly 5px corners
   const edges5PctStyle = { borderRadius: '5px' };
 
   return (
-    <div className="space-y-6 text-left relative">
+    <div className="space-y-2.5 text-left relative">
       {/* Dynamic Printing Style overrides */}
       <style jsx global>{`
         @media print {
@@ -916,12 +1035,12 @@ function ReportsPage() {
       `}</style>
 
       {/* Header */}
-      <div className="flex items-end justify-between flex-wrap gap-4 pt-1 no-print">
+      <div className="flex items-center justify-between flex-wrap gap-2 pt-0.5 no-print">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <h1 className="text-lg font-bold tracking-tight text-slate-850 dark:text-slate-100 flex items-center gap-2">
             Report Center
           </h1>
-          <p className="text-sm text-slate-450 mt-1">
+          <p className="text-xs text-slate-400 mt-0.5">
             Access, view, export, and print operational reports for sales, funnel, customer success, and projects.
           </p>
         </div>
@@ -929,12 +1048,12 @@ function ReportsPage() {
 
       {/* Filter panel */}
       <div
-        className="bg-white dark:bg-slate-900 border dark:border-slate-800 p-5 shadow-xs flex flex-wrap items-center justify-between gap-4 no-print"
+        className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 px-3.5 py-2.5 shadow-xs flex flex-wrap items-center justify-between gap-3 no-print"
         style={edges5PctStyle}
       >
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Date Range</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Date Range</span>
             <PeriodFilter
               value={dateRange}
               period={period}
@@ -948,14 +1067,14 @@ function ReportsPage() {
 
           {(selectedReportId === 'sales-pipeline-report-perf' || selectedReportId === 'sales-funnel') && (
             <>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Deal Owner</span>
-                <div className="relative">
+              <div className="flex items-center gap-1.5 min-w-[170px]">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Owner</span>
+                <div className="relative flex-1">
                   <select
                     value={selectedOwner}
                     onChange={(e) => setSelectedOwner(e.target.value)}
                     style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                    className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
                   >
                     {dealOwners.map((owner) => (
                       <option key={owner} value={owner}>
@@ -963,18 +1082,18 @@ function ReportsPage() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Deal Stage</span>
-                <div className="relative">
+              <div className="flex items-center gap-1.5 min-w-[170px]">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Stage</span>
+                <div className="relative flex-1">
                   <select
                     value={selectedStage}
                     onChange={(e) => setSelectedStage(e.target.value)}
                     style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                    className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
                   >
                     {dealStages.map((stage) => (
                       <option key={stage} value={stage}>
@@ -982,7 +1101,7 @@ function ReportsPage() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
                 </div>
               </div>
             </>
@@ -990,14 +1109,14 @@ function ReportsPage() {
 
           {(selectedReportId === 'opp-pipeline' || selectedReportId === 'pipeline-dev') && (
             <>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Deal Stage</span>
-                <div className="relative">
+              <div className="flex items-center gap-1.5 min-w-[170px]">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Stage</span>
+                <div className="relative flex-1">
                   <select
                     value={selectedStage}
                     onChange={(e) => setSelectedStage(e.target.value)}
                     style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                    className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
                   >
                     {dealStages.map((stage) => (
                       <option key={stage} value={stage}>
@@ -1005,18 +1124,18 @@ function ReportsPage() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Lead Source</span>
-                <div className="relative">
+              <div className="flex items-center gap-1.5 min-w-[170px]">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Source</span>
+                <div className="relative flex-1">
                   <select
                     value={selectedLeadSource}
                     onChange={(e) => setSelectedLeadSource(e.target.value)}
                     style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                    className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
                   >
                     <option value="">All Lead Sources</option>
                     {leadSources.map((source) => (
@@ -1025,132 +1144,153 @@ function ReportsPage() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
                 </div>
               </div>
             </>
           )}
 
           {selectedReportId === 'opp-aging' && (
-            <>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Deal Owner</span>
-                <div className="relative">
-                  <select
-                    value={selectedOwner}
-                    onChange={(e) => setSelectedOwner(e.target.value)}
-                    style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
-                  >
-                    <option value="">All Owners</option>
-                    {dealOwners.map((owner) => (
-                      <option key={owner} value={owner}>
-                        {owner}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                </div>
+            <div className="flex items-center gap-1.5 min-w-[170px]">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Owner</span>
+              <div className="relative flex-1">
+                <select
+                  value={selectedOwner}
+                  onChange={(e) => setSelectedOwner(e.target.value)}
+                  style={edges5PctStyle}
+                  className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                >
+                  <option value="">All Owners</option>
+                  {dealOwners.map((owner) => (
+                    <option key={owner} value={owner}>
+                      {owner}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
               </div>
-            </>
+            </div>
           )}
 
           {selectedReportId === 'daily-sales' && (
-            <>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Sales Representative</span>
-                <div className="relative">
-                  <select
-                    value={selectedSalesId}
-                    onChange={(e) => setSelectedSalesId(e.target.value)}
-                    style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
-                  >
-                    <option value="all">All Sales Reps</option>
-                    {usersList.map((u) => {
-                      const name = u.username || u.Name || `User ${u.id}`;
-                      return (
-                        <option key={u.id} value={String(u.id)}>
-                          {name}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                </div>
+            <div className="flex items-center gap-1.5 min-w-[180px]">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Rep</span>
+              <div className="relative flex-1">
+                <select
+                  value={selectedSalesId}
+                  onChange={(e) => setSelectedSalesId(e.target.value)}
+                  style={edges5PctStyle}
+                  className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                >
+                  <option value="all">All Sales Reps</option>
+                  {usersList.map((u) => {
+                    const name = u.username || u.Name || `User ${u.id}`;
+                    return (
+                      <option key={u.id} value={String(u.id)}>
+                        {name}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
               </div>
-            </>
+            </div>
           )}
 
           {selectedReport.category === 'project' && selectedReportId !== 'project-summary' && (
-            <>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Project</span>
-                <div className="relative">
-                  <select
-                    value={selectedProjectId}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                    style={edges5PctStyle}
-                    className="w-full h-[38px] pl-3 pr-10 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
-                  >
-                    <option value="">All Projects</option>
-                    {projectsList.map((proj) => {
-                      const name = proj.project_name || proj.project_id || `Project ${proj.id}`;
-                      return (
-                        <option key={proj.id} value={String(proj.id)}>
-                          {name}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                </div>
+            <div className="flex items-center gap-1.5 min-w-[180px]">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">Project</span>
+              <div className="relative flex-1">
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  style={edges5PctStyle}
+                  className="w-full h-8 pl-2.5 pr-8 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold appearance-none text-slate-850 dark:text-slate-100 cursor-pointer transition-all"
+                >
+                  <option value="">All Projects</option>
+                  {projectsList.map((proj) => {
+                    const name = proj.project_name || proj.project_id || `Project ${proj.id}`;
+                    return (
+                      <option key={proj.id} value={String(proj.id)}>
+                        {name}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 pointer-events-none" />
               </div>
-            </>
+            </div>
           )}
         </div>
 
         <button
           onClick={handleFetchReport}
           style={edges5PctStyle}
-          className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all self-end cursor-pointer"
+          className="h-8 px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
         >
-          Refresh
+          <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+          <span>Refresh</span>
         </button>
       </div>
+
+      {selectedReportId === 'tally-sync' && (
+        <div className="px-3.5 py-2 bg-emerald-50/90 dark:bg-emerald-950/30 border border-emerald-200/90 dark:border-emerald-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs no-print">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+              <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                Tally GST Reports & Direct ERP Sync Dashboard
+              </span>
+              <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+              <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                View summary KPI metrics and batch voucher sync
+              </span>
+            </div>
+          </div>
+          <a
+            href="/reports/TallySyncReport"
+            className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#2e7d32] hover:bg-[#256628] text-white text-[11px] font-semibold rounded shadow-xs shrink-0 transition-all self-start sm:self-auto"
+          >
+            <span>Open Dedicated Tally Dashboard</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      )}
 
       {/* Main Report Table Area */}
       <div
         id="print-section"
-        className="bg-white dark:bg-slate-900 border dark:border-slate-800 p-6 shadow-sm flex flex-col justify-between"
+        className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 sm:p-4 shadow-xs flex flex-col justify-between"
         style={edges5PctStyle}
       >
         <div>
           {/* Table Header Controls */}
-          <div className="flex justify-between items-center mb-5 flex-wrap gap-4 border-b dark:border-slate-800 pb-4">
-            <div>
-              <h3 className="text-md font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+          <div className="flex justify-between items-center mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs sm:text-sm font-bold text-slate-850 dark:text-slate-100 flex items-center gap-1.5">
                 <BarChart3 className="h-4 w-4 text-blue-600" />
                 {selectedReport.label}
               </h3>
-              <p className="text-xs text-slate-450 font-medium mt-0.5">{dateRange}</p>
+              <span className="text-[11px] text-slate-400 font-mono">• {dateRange}</span>
             </div>
 
-            <div className="flex gap-2 no-print">
+            <div className="flex items-center gap-1.5 no-print">
               <button
                 onClick={handleExportToExcel}
                 style={edges5PctStyle}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all shadow-xs cursor-pointer"
               >
-                <Download className="h-3.5 w-3.5" />
+                <Download className="h-3 w-3" />
                 <span>Excel</span>
               </button>
               <button
                 onClick={handlePrint}
                 style={edges5PctStyle}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-650 hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-all shadow-xs cursor-pointer"
               >
-                <Printer className="h-3.5 w-3.5" />
+                <Printer className="h-3 w-3 text-slate-500" />
                 <span>Print</span>
               </button>
             </div>
@@ -1158,24 +1298,24 @@ function ReportsPage() {
 
           {/* Table body */}
           {loading ? (
-            <div className="h-[40vh] w-full flex flex-col items-center justify-center gap-3">
-              <div className="w-9 h-9 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-xs font-semibold text-slate-500">Compiling report data...</p>
+            <div className="h-[30vh] w-full flex flex-col items-center justify-center gap-2">
+              <div className="w-7 h-7 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-xs font-medium text-slate-500">Compiling report data...</p>
             </div>
           ) : error ? (
-            <div className="h-[40vh] w-full flex flex-col items-center justify-center gap-2.5 text-rose-500">
-              <AlertCircle className="h-8 w-8" />
+            <div className="h-[30vh] w-full flex flex-col items-center justify-center gap-2 text-rose-500">
+              <AlertCircle className="h-6 w-6" />
               <p className="text-xs font-bold">Failed to load report: {error}</p>
               <button
                 onClick={handleFetchReport}
                 style={edges5PctStyle}
-                className="px-4 py-2 bg-blue-600 text-white text-xs font-bold mt-2 shadow-sm hover:bg-blue-700 cursor-pointer"
+                className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold mt-1 shadow-xs hover:bg-blue-700 cursor-pointer"
               >
                 Retry
               </button>
             </div>
           ) : (
-            <div id="report-data-table">
+            <div id="report-data-table" className="overflow-x-auto min-w-0 w-full">
               <ReusableTable
                 columns={tableColumns}
                 data={reportData}
@@ -1188,8 +1328,9 @@ function ReportsPage() {
           )}
         </div>
 
-        <div className="flex justify-end mt-4 pt-4 border-t dark:border-slate-800 text-[10px] text-slate-400 font-bold">
-          Report compiled dynamically from live CRM transaction tables.
+        <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 font-medium">
+          <span>Report compiled dynamically from live CRM transaction tables.</span>
+          <span>Pegatto CRM</span>
         </div>
       </div>
     </div>
