@@ -82,7 +82,7 @@ export default function AuthenticatedLayout({
             "flex-1 print:overflow-visible print:p-0",
             isChatPage
               ? "overflow-hidden flex flex-col h-full w-full"
-              : "overflow-y-auto p-6 md:p-8"
+              : "overflow-y-auto p-3 sm:p-4 md:p-5"
           )}>
             {children}
           </div>

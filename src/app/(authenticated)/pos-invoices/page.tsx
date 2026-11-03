@@ -205,15 +205,15 @@ export default function PosInvoicesListPage() {
   };
 
   return (
-    <div className="flex flex-col gap-5 p-4 lg:p-6 w-full max-w-[1400px] mx-auto select-none">
+    <div className="flex flex-col gap-3.5 sm:gap-4 w-full max-w-[1600px] mx-auto select-none">
       {/* 1. Header with Avatar, Title, and + New Invoice button */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-[#0F3B2C] flex items-center justify-center text-white shadow-sm shrink-0">
-            <Receipt className="w-6 h-6" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-full bg-[#0F3B2C] flex items-center justify-center text-white shadow-sm shrink-0">
+            <Receipt className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
               POS Invoices
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -224,7 +224,7 @@ export default function PosInvoicesListPage() {
 
         <Button
           onClick={() => router.push('/pos-invoices/billing')}
-          className="bg-[#1d7042] hover:bg-[#155d36] text-white font-semibold text-xs px-4 py-2 h-9 rounded-md shadow-sm gap-1.5 cursor-pointer"
+          className="bg-[#1d7042] hover:bg-[#155d36] text-white font-semibold text-xs px-3.5 py-2 h-8.5 rounded-md shadow-sm gap-1.5 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           New Invoice
@@ -232,70 +232,70 @@ export default function PosInvoicesListPage() {
       </div>
 
       {/* 2. Top Stats Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 lg:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
         {/* Card 1: Total Invoices */}
-        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl lg:rounded-2xl p-3.5 lg:p-4 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
+        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
           <div className="space-y-0.5 min-w-[90px]">
-            <span className="text-[10px] lg:text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Total Invoices
             </span>
-            <p className="text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <p className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               {metrics.totalCount}
             </p>
           </div>
-          <div className="p-2.5 lg:p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl lg:rounded-2xl shrink-0">
-            <Receipt className="h-4.5 w-4.5 lg:h-5 lg:w-5 text-blue-500" />
+          <div className="p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-950/30 rounded-xl shrink-0">
+            <Receipt className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-blue-500" />
           </div>
         </div>
 
         {/* Card 2: Total Revenue */}
-        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl lg:rounded-2xl p-3.5 lg:p-4 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
+        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
           <div className="space-y-0.5 min-w-[90px]">
-            <span className="text-[10px] lg:text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Total Revenue
             </span>
-            <p className="text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <p className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               ₹{metrics.totalSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
-          <div className="p-2.5 lg:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl lg:rounded-2xl shrink-0">
-            <DollarSign className="h-4.5 w-4.5 lg:h-5 lg:w-5 text-emerald-600" />
+          <div className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl shrink-0">
+            <DollarSign className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-emerald-600" />
           </div>
         </div>
 
         {/* Card 3: Pending Amount */}
-        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl lg:rounded-2xl p-3.5 lg:p-4 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
+        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
           <div className="space-y-0.5 min-w-[90px]">
-            <span className="text-[10px] lg:text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Pending Amount
             </span>
-            <p className="text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <p className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               ₹{metrics.pendingAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
-          <div className="p-2.5 lg:p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl lg:rounded-2xl shrink-0">
-            <Clock className="h-4.5 w-4.5 lg:h-5 lg:w-5 text-amber-500" />
+          <div className="p-2 sm:p-2.5 bg-amber-50 dark:bg-amber-950/30 rounded-xl shrink-0">
+            <Clock className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-amber-500" />
           </div>
         </div>
 
         {/* Card 4: Completed */}
-        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl lg:rounded-2xl p-3.5 lg:p-4 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
+        <div className="bg-white dark:bg-slate-900 border dark:border-slate-800/80 rounded-xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2 hover:shadow-xs transition-all duration-200">
           <div className="space-y-0.5 min-w-[90px]">
-            <span className="text-[10px] lg:text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <span className="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Completed
             </span>
-            <p className="text-xl lg:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <p className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               {metrics.completedCount}
             </p>
           </div>
-          <div className="p-2.5 lg:p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl lg:rounded-2xl shrink-0">
-            <CheckCircle2 className="h-4.5 w-4.5 lg:h-5 lg:w-5 text-emerald-600" />
+          <div className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl shrink-0">
+            <CheckCircle2 className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-emerald-600" />
           </div>
         </div>
       </div>
 
       {/* 3. Invoices List Table & Filter Container */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3 shadow-none">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 sm:p-3 shadow-none">
         {/* Filter Controls Row */}
         <div className="flex flex-wrap items-center gap-3 mb-3">
           {/* Search Box */}

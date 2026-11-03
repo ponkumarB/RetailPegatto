@@ -614,8 +614,8 @@ function PosBillingContent() {
   }, [products, productSearchQuery]);
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#1f2937] pb-12 flex flex-col justify-between">
-      <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-4">
+    <div className="min-h-screen bg-[#F8F9FA] text-[#1f2937] pb-8 flex flex-col justify-between">
+      <div className="max-w-[1600px] w-full mx-auto px-1 sm:px-2 py-1">
         {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           {/* Back button + Page Title */}
