@@ -19,7 +19,7 @@ import {
 import { fetchDropDownList } from '@/service/api/Resource/api';
 import { formatPersonName, cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { syncInvoiceToTally } from '@/api/transactions';
+import { syncInvoiceToTally, fetchTallyReportInvoices } from '@/api/transactions';
 
 interface ReportColumn {
   key: string;
@@ -847,6 +847,13 @@ function ReportsPage() {
     setLoading(true);
     setError(null);
     try {
+      if (selectedReportId === 'tally-sync') {
+        const tallyInvoices = await fetchTallyReportInvoices();
+        setReportData(tallyInvoices);
+        setLoading(false);
+        return;
+      }
+
       const orgId = typeof window !== 'undefined' ? (localStorage.getItem('Organization_Id') || '1') : '1';
       const dates = dateRange.split(' - ');
       const start = formatDateForApi(dates[0]) || '2025-01-01';

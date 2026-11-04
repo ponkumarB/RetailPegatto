@@ -567,7 +567,7 @@ export async function fetchPosInvoiceStatsAPI(): Promise<any> {
 }
 
 export async function syncPosInvoiceToTallyAPI(invoiceId: string | number): Promise<any> {
-  return fetchFromApi('/user/SalesInvoiceSyncToTally/', {
+  return fetchFromApi('/user/tally/sync-invoice/', {
     method: 'POST',
     body: JSON.stringify({ invoice_id: invoiceId }),
   });
