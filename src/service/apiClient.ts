@@ -131,7 +131,7 @@ function extractErrorMessage(errData: any): string {
 }
 
 // Helper fetcher for TanStack Query endpoints
-export async function fetchFromApi<T = any>(endpoint: string, options?: RequestInit): Promise<T> {
+export async function fetchFromApi<T = any>(endpoint: string, options?: RequestInit & { timeout?: number }): Promise<T> {
   const token = typeof window !== 'undefined'
     ? (localStorage.getItem('token') || localStorage.getItem('accesstoken') || localStorage.getItem('accessToken'))
     : null;
@@ -240,9 +240,9 @@ export async function fetchFromApi<T = any>(endpoint: string, options?: RequestI
     } catch {}
   }
 
-  // 12-second timeout protection so requests fail fast to offline cache instead of freezing the UI
+  // Configurable timeout protection (defaults to 30s) so requests don't fail prematurely
   const controller = new AbortController();
-  const timeoutMs = 12000;
+  const timeoutMs = typeof options?.timeout === 'number' && options.timeout > 0 ? options.timeout : 30000;
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, timeoutMs);

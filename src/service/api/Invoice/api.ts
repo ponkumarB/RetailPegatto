@@ -218,20 +218,23 @@ export async function deleteSalesInvoiceBackend(id: number | string): Promise<an
  * Endpoint: /user/SalesInvoiceCRUD/?id=${id}
  */
 export async function fetchSalesInvoiceById(id: number | string): Promise<any> {
-  try {
-    const res = await fetchFromApi(`/user/SalesInvoiceCRUD/?id=${id}`, {
-      method: 'GET',
-    });
-    if (res && (res.id || (Array.isArray(res) && res.length > 0) || (res.results && res.results.length > 0))) {
-      return res;
+  const isNumeric = /^\d+$/.test(String(id).trim());
+  if (isNumeric) {
+    try {
+      const res = await fetchFromApi(`/user/SalesInvoiceCRUD/?id=${id}`, {
+        method: 'GET',
+      });
+      if (res && (res.id || (Array.isArray(res) && res.length > 0) || (res.results && res.results.length > 0))) {
+        return res;
+      }
+    } catch (e) {
+      console.warn('fetchSalesInvoiceById direct fetch failed, trying search fallback...', e);
     }
-  } catch (e) {
-    console.warn('fetchSalesInvoiceById direct fetch failed, trying search fallback...', e);
   }
 
   // Fallback lookup via search or list
   try {
-    const searchRes = await fetchFromApi(`/user/SalesInvoiceSearch/?search=${id}`, { method: 'GET' });
+    const searchRes = await fetchFromApi(`/user/SalesInvoiceSearch/?search=${encodeURIComponent(String(id).trim())}`, { method: 'GET' });
     const list = Array.isArray(searchRes) ? searchRes : (searchRes?.results || []);
     const match = list.find((item: any) => String(item.id) === String(id) || item.Invoice_code === String(id) || item.Invoice_Id === String(id));
     if (match) return match;

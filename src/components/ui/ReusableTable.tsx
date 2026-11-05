@@ -447,13 +447,22 @@ export function ReusableTable<T extends Record<string, any>>({
               {/* Optional Selection Checkbox Header */}
               {isSelectableActive && (
                 <TableHead
+                  data-selection-cell="true"
                   className="w-10 p-0 sticky left-0 z-30 bg-[#f8fafc] dark:bg-slate-900 border-r dark:border-slate-850"
                   style={{ left: 0 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center justify-center w-10 h-10">
+                  <div
+                    className="flex items-center justify-center w-10 h-10"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
                     <Checkbox
                       checked={isAllSelected}
                       onCheckedChange={handleSelectAll}
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
                       className="border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-900 data-checked:bg-blue-600 data-checked:border-blue-600 data-checked:text-white"
                     />
                   </div>
@@ -594,7 +603,19 @@ export function ReusableTable<T extends Record<string, any>>({
                     onDragStart={(e) => handleRowDragStart(e, absoluteIndex)}
                     onDragOver={handleRowDragOver}
                     onDrop={(e) => handleRowDrop(e, absoluteIndex)}
-                    onClick={(e) => onRowClick?.(row, absoluteIndex, e)}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement | null;
+                      if (
+                        target?.closest('[data-slot="checkbox"]') ||
+                        target?.closest('input[type="checkbox"]') ||
+                        target?.closest('[data-selection-cell="true"]') ||
+                        target?.closest('button') ||
+                        target?.closest('a')
+                      ) {
+                        return;
+                      }
+                      onRowClick?.(row, absoluteIndex, e);
+                    }}
                     className={cn(
                       "group hover:bg-slate-50/50 dark:hover:bg-slate-955/10 transition-colors border-slate-100 dark:border-slate-850",
                       isSelected && "bg-blue-50/30 dark:bg-blue-950/10",
@@ -606,14 +627,22 @@ export function ReusableTable<T extends Record<string, any>>({
                     {/* Optional Selection Checkbox Cell */}
                     {isSelectableActive && (
                       <TableCell
+                        data-selection-cell="true"
                         className="w-10 p-0 sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50/70 dark:group-hover:bg-slate-955/70 border-r dark:border-slate-850"
                         style={{ left: 0 }}
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
                       >
-                        <div className="flex items-center justify-center w-10 h-10">
+                        <div
+                          className="flex items-center justify-center w-10 h-10"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
                           <Checkbox
                             checked={isSelected}
-                            onCheckedChange={(checked) => handleSelectRow(row, checked)}
-                            onClick={(e) => e.stopPropagation()} // Prevent triggering onRowClick
+                            onCheckedChange={(checked) => handleSelectRow(row, !!checked)}
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             className="border-slate-300 dark:border-slate-750 bg-white dark:bg-slate-900 data-checked:bg-blue-600 data-checked:border-blue-600 data-checked:text-white"
                           />
                         </div>

@@ -19,7 +19,7 @@ import {
 import { fetchDropDownList } from '@/service/api/Resource/api';
 import { formatPersonName, cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { syncInvoiceToTally, fetchTallyReportInvoices } from '@/api/transactions';
+import { syncInvoiceToTally, fetchTallyReportInvoices, invalidateTallyInvoicesCache } from '@/api/transactions';
 
 interface ReportColumn {
   key: string;
@@ -680,8 +680,13 @@ function ReportsPage() {
   const searchParams = useSearchParams();
   const reportQuery = searchParams.get('report');
 
-  const [activeCategory, setActiveCategory] = useState<'sales' | 'lead-opp' | 'engagement' | 'marketing' | 'retention' | 'general' | 'funnel' | 'project'>('lead-opp');
-  const [selectedReportId, setSelectedReportId] = useState<string>('lead-conversion');
+  const initialReport = reportQuery ? REPORTS.find(r => r.id === reportQuery) : null;
+  const [activeCategory, setActiveCategory] = useState<'sales' | 'lead-opp' | 'engagement' | 'marketing' | 'retention' | 'general' | 'funnel' | 'project'>(
+    initialReport ? initialReport.category : 'lead-opp'
+  );
+  const [selectedReportId, setSelectedReportId] = useState<string>(
+    initialReport ? initialReport.id : 'lead-conversion'
+  );
   const [dateRange, setDateRange] = useState('24 Jun 2025 - 24 Jun 2026');
   const [period, setPeriod] = useState('Custom');
   const [loading, setLoading] = useState(false);
@@ -714,6 +719,7 @@ function ReportsPage() {
       } else {
         toast.success(`Invoice ${invoiceId} synced to Tally successfully!`);
       }
+      invalidateTallyInvoicesCache();
       handleFetchReport();
     } catch (err: any) {
       console.error('Tally Sync Error:', err);
@@ -731,14 +737,14 @@ function ReportsPage() {
 
   // Sync state with URL search param
   useEffect(() => {
-    if (reportQuery) {
+    if (reportQuery && reportQuery !== selectedReportId) {
       const rep = REPORTS.find(r => r.id === reportQuery);
       if (rep) {
         setActiveCategory(rep.category);
         setSelectedReportId(rep.id);
       }
     }
-  }, [reportQuery]);
+  }, [reportQuery, selectedReportId]);
 
   // Sync selected report id when switching categories manually (not via query param)
   useEffect(() => {
@@ -753,11 +759,11 @@ function ReportsPage() {
     async function loadFilterOptions() {
       try {
         const [dealsDropdownRes, stagesRes, sourcesRes, usersRes, projectsRes] = await Promise.all([
-          fetchFromApi('/user/DealDropdownList/').catch(err => { console.error('Error fetching deal dropdown list:', err); return []; }),
-          fetchDropDownList('Deal Stage').catch(err => { console.error('Error fetching deal stages:', err); return null; }),
-          fetchDropDownList('Lead Source').catch(err => { console.error('Error fetching lead sources:', err); return null; }),
-          fetchFromApi('/user/UserDropdownAPI/').catch(err => { console.error('Error fetching users dropdown list:', err); return []; }),
-          fetchFromApi('/user/Projectlistwithoutpaginaton/').catch(err => { console.error('Error fetching projects list:', err); return []; })
+          fetchFromApi('/user/DealDropdownList/').catch(err => { console.warn('Non-critical: Deal dropdown list failed to load:', err?.message || err); return []; }),
+          fetchDropDownList('Deal Stage').catch(err => { console.warn('Non-critical: Deal stages failed to load, using fallbacks:', err?.message || err); return null; }),
+          fetchDropDownList('Lead Source').catch(err => { console.warn('Non-critical: Lead sources failed to load, using fallbacks:', err?.message || err); return null; }),
+          fetchFromApi('/user/UserDropdownAPI/').catch(err => { console.warn('Non-critical: Users dropdown list failed to load:', err?.message || err); return []; }),
+          fetchFromApi('/user/Projectlistwithoutpaginaton/').catch(err => { console.warn('Non-critical: Projects list failed to load:', err?.message || err); return []; })
         ]);
 
         if (Array.isArray(usersRes)) {
@@ -892,7 +898,16 @@ function ReportsPage() {
     }
   };
 
+  const prevReportIdRef = useRef(selectedReportId);
   useEffect(() => {
+    const isReportIdChanged = prevReportIdRef.current !== selectedReportId;
+    prevReportIdRef.current = selectedReportId;
+
+    // For tally-sync, ignore secondary filter updates (stage, owner, etc.) to avoid duplicate re-fetches
+    if (selectedReportId === 'tally-sync' && !isReportIdChanged && reportData.length > 0) {
+      return;
+    }
+
     handleFetchReport();
   }, [selectedReportId, dateRange, selectedOwner, selectedStage, selectedLeadSource, selectedSalesId, selectedProjectId]);
 

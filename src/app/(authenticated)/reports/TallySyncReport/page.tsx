@@ -33,7 +33,13 @@ import {
   CreditCard,
   User,
   Phone,
-  Hash
+  Hash,
+  MoreVertical,
+  Download,
+  Copy,
+  Package,
+  Truck,
+  Box
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -41,20 +47,119 @@ import moment from 'moment';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { fetchTallyReportInvoices, syncInvoiceToTally, syncMultipleInvoicesToTally } from '@/api/transactions';
+import {
+  fetchTallyReportInvoices,
+  syncInvoiceToTally,
+  syncMultipleInvoicesToTally,
+  invalidateTallyInvoicesCache,
+} from '@/api/transactions';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTallyReportInvoices, TALLY_INVOICES_QUERY_KEY } from '@/service/api/Invoice';
+import { usePosInvoiceStore } from '@/store/usePosInvoiceStore';
+import { fetchSalesInvoiceById } from '@/service/api/Invoice/api';
 import { ReusableTable, ColumnConfig } from '@/components/ui/ReusableTable';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import TallyConfigurationModal from '@/components/layout/TallyConfigurationModal';
 
+/**
+ * Standardizes line items across POS store, local storage, and various backend schemas
+ */
+function normalizeInvoiceItems(rawItems: any[]): any[] {
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems.map((it: any, idx: number) => {
+    const prod = it.product || {};
+    const name =
+      it.name ||
+      it.Product_Name ||
+      it.Item_Name ||
+      it.product_name ||
+      it.item_name ||
+      it.title ||
+      prod.name ||
+      prod.title ||
+      `Item #${idx + 1}`;
+    const sku = String(it.sku || it.Product_Id || it.Product_Code || it.item_code || prod.sku || prod.id || '');
+    const quantity = Number(it.quantity || it.qty || it.Quantity || it.Shipment_Quantity || 1);
+    const rate = Number(it.rate || it.price || it.Unit_Price || it.unit_price || it.Rate || prod.price || 0);
+    const taxRate = Number(it.taxRate || it.Tax_Percentage || it.Tax || it.gst || prod.taxRate || 0);
+    const tax = Number(
+      it.taxAmount ||
+      it.tax ||
+      it.Tax_Amount ||
+      it.Tax ||
+      (taxRate > 0 ? (rate * quantity * taxRate) / 100 : 0)
+    );
+    const discount = Number(it.discountPercent || it.discount || it.Discount || 0);
+    
+    // Prioritize Amount / amount line calculations over raw Net_Amount strings
+    let total = 0;
+    if (it.Amount !== undefined && it.Amount !== null && Number(it.Amount) > 0) {
+      total = Number(it.Amount);
+    } else if (it.amount !== undefined && it.amount !== null && Number(it.amount) > 0) {
+      total = Number(it.amount);
+    } else if (it.total !== undefined && it.total !== null && Number(it.total) > 0) {
+      total = Number(it.total);
+    } else if (it.totalAmount !== undefined && it.totalAmount !== null && Number(it.totalAmount) > 0) {
+      total = Number(it.totalAmount);
+    } else if (it.Final_Price !== undefined && it.Final_Price !== null && Number(it.Final_Price) > 0) {
+      total = Number(it.Final_Price);
+    } else if (it.Net_Amount !== undefined && it.Net_Amount !== null && Number(it.Net_Amount) > 0) {
+      total = Number(it.Net_Amount);
+    } else {
+      total = Math.max(0, rate * quantity - discount + tax);
+    }
+
+    const uom = it.unit || it.UOM || prod.unit || 'Unit';
+
+    return {
+      id: String(it.id || it.Product_Id || `item-${idx + 1}`),
+      name,
+      Product_Name: name,
+      Item_Name: name,
+      sku,
+      quantity,
+      qty: quantity,
+      rate,
+      price: rate,
+      taxRate,
+      tax,
+      taxAmount: tax,
+      discount,
+      total,
+      totalAmount: total,
+      uom,
+    };
+  });
+}
+
 export default function TallySyncReportPage() {
   const { primaryColor } = useStore();
+  const queryClient = useQueryClient();
+  const { data: serverInvoices, isLoading: queryLoading, refetch: refetchInvoices } = useTallyReportInvoices();
+
   const [invoices, setInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Keep local invoices state synchronized with TanStack Query cache
+  useEffect(() => {
+    if (serverInvoices && Array.isArray(serverInvoices)) {
+      setInvoices(serverInvoices);
+    }
+  }, [serverInvoices]);
+
+  const loading = queryLoading && invoices.length === 0;
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [isMultiSyncing, setIsMultiSyncing] = useState(false);
   const [multiSyncProgress, setMultiSyncProgress] = useState({ current: 0, total: 0, currentInvoiceId: '' });
@@ -68,24 +173,327 @@ export default function TallySyncReportPage() {
   // Single Record Overview Modal state
   const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
   const [isRecordOverviewOpen, setIsRecordOverviewOpen] = useState(false);
+  const [isLoadingRecordItems, setIsLoadingRecordItems] = useState(false);
 
-  // Load Invoices from all real sources without arbitrary restrictions
-  const loadInvoices = async () => {
-    setLoading(true);
+  // Asynchronously resolve line items and full financial charges from backend/stores
+  const enrichRecordDetails = async (rec: any) => {
+    if (!rec) return rec;
+
+    // Check if record has already been fully enriched with backend details
+    if (rec._isEnriched && Array.isArray(rec.items) && rec.items.length > 0) {
+      return rec;
+    }
+
+    const invoiceId = String(rec.Invoice_Id || rec.invoiceNumber || rec.id || '').trim();
+    const rawId = rec.id || rec.Invoice_Id;
+
+    let bkItem: any = null;
+
+    // 1. Primary: Direct lookup from backend database
     try {
-      const list = await fetchTallyReportInvoices();
-      setInvoices(Array.isArray(list) ? list : []);
-    } catch (err: any) {
-      console.error('Error fetching invoices for Tally Report:', err);
-      toast.error('Failed to load invoices from server');
+      if (rawId && /^\d+$/.test(String(rawId))) {
+        const res = await fetchSalesInvoiceById(rawId);
+        const data = res?.data || res?.results || res;
+        bkItem = Array.isArray(data) ? data[0] : (data?.id ? data : null);
+      }
+
+      // If not found or rawId is string code, search via SalesInvoiceSearch
+      if (!bkItem && invoiceId) {
+        const { fetchFromApi } = await import('@/service/apiClient');
+        const searchRes = await fetchFromApi(`/user/SalesInvoiceSearch/?search=${encodeURIComponent(invoiceId)}`, { method: 'GET' });
+        const list = Array.isArray(searchRes) ? searchRes : (searchRes?.results || []);
+        bkItem = list.find(
+          (item: any) =>
+            String(item.Invoice_Id || item.Invoice_code || item.id).toLowerCase() === invoiceId.toLowerCase()
+        );
+
+        // If found from search, fetch full details by numeric ID if items are not yet included
+        if (bkItem?.id && /^\d+$/.test(String(bkItem.id)) && (!bkItem.Invoice_Details || bkItem.Invoice_Details.length === 0)) {
+          try {
+            const detailRes = await fetchSalesInvoiceById(bkItem.id);
+            const detailData = detailRes?.data || detailRes?.results || detailRes;
+            const fullBk = Array.isArray(detailData) ? detailData[0] : (detailData?.id ? detailData : null);
+            if (fullBk) {
+              bkItem = { ...bkItem, ...fullBk };
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.warn('Backend fetch failed for invoice', invoiceId, e);
+    }
+
+    if (bkItem) {
+      const rawItems =
+        bkItem.Invoice_Details ||
+        bkItem.SalesInvoice_Details ||
+        bkItem.items ||
+        bkItem.Product_Details ||
+        bkItem.details ||
+        [];
+      const norm = normalizeInvoiceItems(rawItems);
+
+      return {
+        ...rec,
+        ...bkItem,
+        _isEnriched: true,
+        items: norm,
+        Invoice_Details: norm,
+        Freight_Cost: Number(bkItem.Freight_Cost !== undefined && bkItem.Freight_Cost !== null ? bkItem.Freight_Cost : rec.Freight_Cost || 0),
+        Packing_Charges: Number(bkItem.Packing_Charges !== undefined && bkItem.Packing_Charges !== null ? bkItem.Packing_Charges : rec.Packing_Charges || 0),
+        Discount_Amount: Number(bkItem.Discount_Amount !== undefined && bkItem.Discount_Amount !== null ? bkItem.Discount_Amount : rec.Discount_Amount || 0),
+        Amount_Received: Number(bkItem.Amount_Received ?? rec.Amount_Received ?? (bkItem.Is_Paid ? bkItem.Net_Amount : 0)),
+        Refund_Amount: Number(bkItem.Refund_Amount ?? rec.Refund_Amount ?? 0),
+        Store_Name: bkItem.Store_Id?.Store_Name || bkItem.Store_Name || rec.Store_Name || 'Default Store',
+        Customer_Name: bkItem.Customer_Name || rec.Customer_Name || 'Walk-in Customer',
+        Customer_Phone: bkItem.Customer_Mobile || bkItem.Customer_Phone || rec.Customer_Phone || '',
+        Payment_Method: bkItem.Payment_Method || rec.Payment_Method || 'Cash',
+        Is_Paid: bkItem.Is_Paid !== undefined ? bkItem.Is_Paid : rec.Is_Paid,
+      };
+    }
+
+    // 2. Secondary: Check usePosInvoiceStore for preloaded items
+    try {
+      const posStoreInvs = usePosInvoiceStore?.getState?.()?.invoices || [];
+      const matchPos = posStoreInvs.find(
+        (p: any) =>
+          String(p.invoiceNumber || p.id).toLowerCase() === invoiceId.toLowerCase()
+      );
+      if (matchPos && Array.isArray(matchPos.items) && matchPos.items.length > 0) {
+        const norm = normalizeInvoiceItems(matchPos.items);
+        return {
+          ...rec,
+          _isEnriched: true,
+          items: norm,
+          Invoice_Details: norm,
+          Freight_Cost: Number(rec.Freight_Cost || 0),
+          Packing_Charges: Number(rec.Packing_Charges || 0),
+          Discount_Amount: Number(matchPos.discountAmount || rec.Discount_Amount || 0),
+          Amount_Received: Number(matchPos.amountReceived || rec.Amount_Received || 0),
+        };
+      }
+    } catch {}
+
+    // 3. Check local persistent storage
+    try {
+      const { getLocalData } = await import('@/utils/persistentStorage');
+      const posLocal = getLocalData<any>('pegatto_pos_invoices');
+      const invLocal = getLocalData<any>('pegatto_invoices');
+      const matchLocal = [...posLocal, ...invLocal].find(
+        (p: any) =>
+          String(p.invoiceNumber || p.Invoice_Id || p.id).toLowerCase() === invoiceId.toLowerCase()
+      );
+      const localItems = matchLocal?.items || matchLocal?.Invoice_Details;
+      if (Array.isArray(localItems) && localItems.length > 0) {
+        const norm = normalizeInvoiceItems(localItems);
+        return {
+          ...rec,
+          _isEnriched: true,
+          items: norm,
+          Invoice_Details: norm,
+          Freight_Cost: Number(matchLocal.Freight_Cost || rec.Freight_Cost || 0),
+          Packing_Charges: Number(matchLocal.Packing_Charges || rec.Packing_Charges || 0),
+          Discount_Amount: Number(matchLocal.Discount_Amount || rec.Discount_Amount || 0),
+          Amount_Received: Number(matchLocal.Amount_Received || rec.Amount_Received || 0),
+        };
+      }
+    } catch {}
+
+    // 4. Fallback item so item breakdown is never blank
+    const totalVal = Number(rec.Net_Amount || rec.totalAmount || rec.Invoice_Amount || 0);
+    const taxVal = Number(rec.Tax_Amount || rec.taxAmount || 0);
+    const baseVal = Number(rec.Invoice_Amount || rec.subtotal || Math.max(0, totalVal - taxVal));
+    const fallback = [
+      {
+        id: `item-${invoiceId || '1'}`,
+        name: rec.Order_No
+          ? `Sales Order #${rec.Order_No} Items`
+          : (rec.Store_Name ? `${rec.Store_Name} - Retail Goods` : 'Standard Retail Goods'),
+        Product_Name: rec.Order_No
+          ? `Sales Order #${rec.Order_No} Items`
+          : (rec.Store_Name ? `${rec.Store_Name} - Retail Goods` : 'Standard Retail Goods'),
+        sku: invoiceId || 'GEN-001',
+        quantity: 1,
+        qty: 1,
+        rate: baseVal,
+        price: baseVal,
+        tax: taxVal,
+        taxAmount: taxVal,
+        taxRate: baseVal > 0 ? Math.round((taxVal / baseVal) * 100) : 0,
+        discount: 0,
+        total: totalVal,
+        totalAmount: totalVal,
+        uom: 'Unit',
+      },
+    ];
+
+    return { ...rec, items: fallback, Invoice_Details: fallback };
+  };
+
+  // Open modal and load full line item details
+  const handleOpenRecordOverview = async (record: any) => {
+    if (!record) return;
+    setSelectedRecord(record);
+    setIsRecordOverviewOpen(true);
+
+    setIsLoadingRecordItems(true);
+    try {
+      const enriched = await enrichRecordDetails(record);
+      setSelectedRecord(enriched);
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.Invoice_Id === enriched.Invoice_Id || inv.id === enriched.id ? enriched : inv
+        )
+      );
+    } catch (err) {
+      console.error('Error enriching record overview:', err);
     } finally {
-      setLoading(false);
+      setIsLoadingRecordItems(false);
     }
   };
 
-  useEffect(() => {
-    loadInvoices();
-  }, []);
+  // Memoized line items for selectedRecord (including product lines and extra charges)
+  const displayItems = useMemo(() => {
+    if (!selectedRecord) return [];
+
+    let baseItems: any[] = [];
+    if (Array.isArray(selectedRecord.items) && selectedRecord.items.length > 0) {
+      baseItems = [...selectedRecord.items];
+    } else if (Array.isArray(selectedRecord.Invoice_Details) && selectedRecord.Invoice_Details.length > 0) {
+      baseItems = normalizeInvoiceItems(selectedRecord.Invoice_Details);
+    } else {
+      const totalVal = Number(selectedRecord.Net_Amount || selectedRecord.totalAmount || selectedRecord.Invoice_Amount || 0);
+      const taxVal = Number(selectedRecord.Tax_Amount || selectedRecord.taxAmount || 0);
+      const baseVal = Number(selectedRecord.Invoice_Amount || selectedRecord.subtotal || Math.max(0, totalVal - taxVal));
+      baseItems = [
+        {
+          id: `item-${selectedRecord.Invoice_Id || '1'}`,
+          name: selectedRecord.Order_No
+            ? `Sales Order #${selectedRecord.Order_No} Items`
+            : (selectedRecord.Store_Name ? `${selectedRecord.Store_Name} - Retail Goods` : 'Standard Retail Goods'),
+          Product_Name: selectedRecord.Order_No
+            ? `Sales Order #${selectedRecord.Order_No} Items`
+            : (selectedRecord.Store_Name ? `${selectedRecord.Store_Name} - Retail Goods` : 'Standard Retail Goods'),
+          sku: selectedRecord.Invoice_Id || 'GEN-001',
+          quantity: 1,
+          qty: 1,
+          rate: baseVal,
+          price: baseVal,
+          tax: taxVal,
+          taxAmount: taxVal,
+          taxRate: baseVal > 0 ? Math.round((taxVal / baseVal) * 100) : 0,
+          discount: 0,
+          total: totalVal,
+          totalAmount: totalVal,
+          uom: 'Unit',
+        },
+      ];
+    }
+
+    // Filter out previous extra charge lines to avoid duplicates
+    baseItems = baseItems.filter((it: any) => !it.isExtraCharge);
+
+    // If invoice has Freight or Packing charges, append them as transparent line items
+    const freightCost = Number(selectedRecord.Freight_Cost || 0);
+    const packingCharges = Number(selectedRecord.Packing_Charges || 0);
+
+    if (freightCost > 0) {
+      baseItems.push({
+        id: `extra-freight-${selectedRecord.Invoice_Id}`,
+        name: 'Freight & Delivery Charges',
+        Product_Name: 'Freight & Delivery Charges',
+        sku: 'FREIGHT',
+        quantity: 1,
+        qty: 1,
+        rate: freightCost,
+        price: freightCost,
+        tax: 0,
+        taxAmount: 0,
+        taxRate: 0,
+        discount: 0,
+        total: freightCost,
+        totalAmount: freightCost,
+        uom: 'Shipment',
+        isExtraCharge: true,
+        chargeType: 'freight',
+      });
+    }
+
+    if (packingCharges > 0) {
+      baseItems.push({
+        id: `extra-packing-${selectedRecord.Invoice_Id}`,
+        name: 'Packing & Packaging Charges',
+        Product_Name: 'Packing & Packaging Charges',
+        sku: 'PACKING',
+        quantity: 1,
+        qty: 1,
+        rate: packingCharges,
+        price: packingCharges,
+        tax: 0,
+        taxAmount: 0,
+        taxRate: 0,
+        discount: 0,
+        total: packingCharges,
+        totalAmount: packingCharges,
+        uom: 'Package',
+        isExtraCharge: true,
+        chargeType: 'packing',
+      });
+    }
+
+    return baseItems;
+  }, [selectedRecord]);
+
+  // Comprehensive financial summary calculation for selectedRecord
+  const recordFinancials = useMemo(() => {
+    if (!selectedRecord) return null;
+
+    const productItems = displayItems.filter((it: any) => !it.isExtraCharge);
+    const itemsSubtotal = productItems.reduce(
+      (sum: number, it: any) => sum + Number(it.total || (Number(it.rate || 0) * Number(it.quantity || 1))),
+      0
+    );
+
+    const freightCost = Number(selectedRecord.Freight_Cost || 0);
+    const packingCharges = Number(selectedRecord.Packing_Charges || 0);
+    const extraCharges = freightCost + packingCharges;
+    const discountAmount = Number(selectedRecord.Discount_Amount || 0);
+    const taxAmount = Number(selectedRecord.Tax_Amount || 0);
+    const cgst = Number(selectedRecord.CGST_Amount || (taxAmount / 2));
+    const sgst = Number(selectedRecord.SGST_Amount || (taxAmount / 2));
+    const taxableBase = Number(selectedRecord.Invoice_Amount || (itemsSubtotal + extraCharges - discountAmount));
+    const netTotal = Number(selectedRecord.Net_Amount || (taxableBase + taxAmount));
+    const amountReceived = Number(
+      selectedRecord.Amount_Received !== undefined && selectedRecord.Amount_Received !== null && Number(selectedRecord.Amount_Received) > 0
+        ? selectedRecord.Amount_Received
+        : (selectedRecord.Is_Paid ? netTotal : 0)
+    );
+    const changeReturned = amountReceived > netTotal ? (amountReceived - netTotal) : Number(selectedRecord.Refund_Amount || 0);
+    const balanceDue = Math.max(0, netTotal - amountReceived);
+
+    return {
+      productItemsCount: productItems.length,
+      itemsSubtotal,
+      freightCost,
+      packingCharges,
+      extraCharges,
+      discountAmount,
+      taxAmount,
+      cgst,
+      sgst,
+      taxableBase,
+      netTotal,
+      amountReceived,
+      changeReturned,
+      balanceDue,
+    };
+  }, [selectedRecord, displayItems]);
+
+  // Reload invoices on user-triggered refresh via TanStack Query
+  const loadInvoices = async () => {
+    invalidateTallyInvoicesCache();
+    await refetchInvoices();
+  };
 
   // Sync a single invoice to Tally
   const handleSyncToTally = async (rowOrId: any) => {
@@ -130,6 +538,9 @@ export default function TallySyncReportPage() {
               }
             : prev
         );
+
+        // Invalidate TanStack Query cache in background to persist sync state
+        queryClient.invalidateQueries({ queryKey: TALLY_INVOICES_QUERY_KEY });
       } else {
         const errorMsg = res?.error || res?.details || res?.message || 'Failed to sync invoice to Tally';
         if (errorMsg.toLowerCase().includes('connect') || errorMsg.toLowerCase().includes('tally')) {
@@ -358,8 +769,7 @@ export default function TallySyncReportPage() {
           className="flex flex-col py-0.5 min-w-[130px] cursor-pointer group/cust"
           onClick={(e) => {
             e.stopPropagation();
-            setSelectedRecord(row);
-            setIsRecordOverviewOpen(true);
+            handleOpenRecordOverview(row);
           }}
           title="Click to view record overview"
         >
@@ -598,17 +1008,17 @@ export default function TallySyncReportPage() {
 
   const handlePrevRecord = () => {
     if (currentRecordIndex > 0) {
-      setSelectedRecord(filteredInvoices[currentRecordIndex - 1]);
+      handleOpenRecordOverview(filteredInvoices[currentRecordIndex - 1]);
     }
   };
 
   const handleNextRecord = () => {
     if (currentRecordIndex >= 0 && currentRecordIndex < filteredInvoices.length - 1) {
-      setSelectedRecord(filteredInvoices[currentRecordIndex + 1]);
+      handleOpenRecordOverview(filteredInvoices[currentRecordIndex + 1]);
     }
   };
 
-  // Export single record overview to PDF
+  // Export single record overview to PDF (including full itemized lines)
   const handleExportSingleRecordPDF = (record: any) => {
     if (!record) return;
     const doc = new jsPDF();
@@ -657,6 +1067,39 @@ export default function TallySyncReportPage() {
         cellPadding: 3.5,
       },
     });
+
+    const items =
+      Array.isArray(record.items) && record.items.length > 0
+        ? record.items
+        : Array.isArray(record.Invoice_Details) && record.Invoice_Details.length > 0
+        ? record.Invoice_Details
+        : displayItems;
+
+    if (items.length > 0) {
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 8,
+        head: [['#', 'Item Description', 'SKU', 'Qty', 'Unit Price', 'Tax', 'Total']],
+        body: items.map((it: any, i: number) => [
+          String(i + 1),
+          it.name || it.Product_Name || `Item #${i + 1}`,
+          it.sku || '-',
+          String(it.quantity || it.qty || 1),
+          `Rs. ${Number(it.rate || it.price || 0).toFixed(2)}`,
+          `Rs. ${Number(it.tax || it.taxAmount || 0).toFixed(2)}`,
+          `Rs. ${Number(it.total || it.totalAmount || 0).toFixed(2)}`,
+        ]),
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 8,
+        },
+        styles: {
+          fontSize: 8,
+          cellPadding: 2.5,
+        },
+      });
+    }
 
     doc.save(`Invoice_${record.Invoice_Id || 'record'}.pdf`);
     toast.success(`PDF for Invoice ${record.Invoice_Id} downloaded!`);
@@ -1141,26 +1584,48 @@ export default function TallySyncReportPage() {
                   </span>
                 </Button>
 
-                {/* Export PDF Button */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExportPDF}
-                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-200 dark:border-slate-700 shadow-xs cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <Printer className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Export PDF</span>
-                </Button>
+                {/* Combined Single Export Dropdown Button (Excel & PDF) */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        className="h-8 px-3 text-xs font-semibold gap-1.5 bg-[#2e7d32] hover:bg-[#256628] text-white shadow-xs cursor-pointer flex-1 sm:flex-initial transition-all"
+                        title="Export Invoices"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export</span>
+                        <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl rounded-xl p-1 z-50 text-left"
+                  >
+                    <DropdownMenuItem
+                      onClick={handleExportExcel}
+                      className="gap-2.5 cursor-pointer text-xs font-medium px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-750 dark:text-slate-200"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">Export Excel</span>
+                        <span className="text-[10px] text-slate-400 font-normal">.xlsx spreadsheet</span>
+                      </div>
+                    </DropdownMenuItem>
 
-                {/* Export Excel Button */}
-                <Button
-                  size="sm"
-                  onClick={handleExportExcel}
-                  className="h-8 px-3 text-xs font-semibold gap-1.5 bg-[#2e7d32] hover:bg-[#256628] text-white shadow-xs cursor-pointer flex-1 sm:flex-initial"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Export Excel</span>
-                </Button>
+                    <DropdownMenuItem
+                      onClick={handleExportPDF}
+                      className="gap-2.5 cursor-pointer text-xs font-medium px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-750 dark:text-slate-200"
+                    >
+                      <Printer className="w-4 h-4 text-blue-600 shrink-0" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">Export PDF</span>
+                        <span className="text-[10px] text-slate-400 font-normal">.pdf report table</span>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </div>
@@ -1227,9 +1692,18 @@ export default function TallySyncReportPage() {
               rowKey="Invoice_Id"
               selectedRows={selectedInvoices}
               onRowSelectChange={(rows) => setSelectedInvoices(rows)}
-              onRowClick={(row) => {
-                setSelectedRecord(row);
-                setIsRecordOverviewOpen(true);
+              onRowClick={(row, _index, e) => {
+                const target = (e as any)?.target as HTMLElement | null;
+                if (
+                  target?.closest('[data-slot="checkbox"]') ||
+                  target?.closest('input[type="checkbox"]') ||
+                  target?.closest('[data-selection-cell="true"]') ||
+                  target?.closest('button') ||
+                  target?.closest('a')
+                ) {
+                  return;
+                }
+                handleOpenRecordOverview(row);
               }}
               actionsHeader="Actions"
               actions={(row) => {
@@ -1237,35 +1711,87 @@ export default function TallySyncReportPage() {
                 const isSyncing = syncingId === row.Invoice_Id || syncingId === String(row.id);
 
                 return (
-                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedRecord(row);
-                        setIsRecordOverviewOpen(true);
-                      }}
-                      className="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer whitespace-nowrap shadow-xs"
-                      title="View record overview"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Overview</span>
-                    </button>
+                  <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    {/* Quick 1-click Action: Sync for pending invoices, or View Overview icon for synced */}
+                    {!isSynced ? (
+                      <Button
+                        size="sm"
+                        onClick={() => handleSyncToTally(row)}
+                        disabled={isSyncing || isMultiSyncing}
+                        className="h-7 px-2.5 text-[11px] font-semibold bg-[#1b5e20] hover:bg-[#154a19] text-white rounded-md shadow-xs transition-all cursor-pointer gap-1"
+                        title="Sync this invoice to Tally Prime"
+                      >
+                        <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                        <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
+                      </Button>
+                    ) : (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleOpenRecordOverview(row)}
+                        className="h-7 w-7 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md cursor-pointer transition-colors"
+                        title="View Record Overview"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
 
-                    <button
-                      type="button"
-                      onClick={() => handleSyncToTally(row)}
-                      disabled={isSyncing || isMultiSyncing}
-                      className={cn(
-                        "inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer whitespace-nowrap",
-                        isSynced
-                          ? "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
-                          : "bg-[#2e7d32] hover:bg-[#256628] text-white",
-                        (isSyncing || isMultiSyncing) && "opacity-75 cursor-wait"
-                      )}
-                    >
-                      <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
-                      <span>{isSyncing ? 'Syncing...' : isSynced ? 'Re-sync' : 'Sync To Tally'}</span>
-                    </button>
+                    {/* 3-Dots Dropdown Menu for all actions */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer transition-colors"
+                            title="More actions"
+                          >
+                            <MoreVertical className="h-3.5 w-3.5" />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-48 dark:bg-slate-900 border dark:border-slate-800 shadow-lg text-xs font-medium">
+                        <DropdownMenuLabel className="text-slate-400 font-bold text-[10px] uppercase tracking-wider">
+                          Invoice #{row.Invoice_Id}
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer font-medium py-1.5"
+                          onClick={() => handleOpenRecordOverview(row)}
+                        >
+                          <Eye className="h-3.5 w-3.5 text-blue-500" />
+                          <span>View Overview</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer font-medium py-1.5"
+                          disabled={isSyncing || isMultiSyncing}
+                          onClick={() => handleSyncToTally(row)}
+                        >
+                          <RefreshCw className={cn("h-3.5 w-3.5 text-emerald-600", isSyncing && "animate-spin")} />
+                          <span>{isSynced ? 'Re-sync to Tally' : 'Sync to Tally'}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer font-medium py-1.5"
+                          onClick={() => handleExportSingleRecordPDF(row)}
+                        >
+                          <Download className="h-3.5 w-3.5 text-slate-500" />
+                          <span>Download PDF</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2 cursor-pointer font-medium py-1.5"
+                          onClick={() => {
+                            if (row.Invoice_Id) {
+                              navigator.clipboard?.writeText(String(row.Invoice_Id));
+                              toast.success(`Copied #${row.Invoice_Id} to clipboard`);
+                            }
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5 text-slate-400" />
+                          <span>Copy Invoice ID</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 );
               }}
@@ -1282,11 +1808,11 @@ export default function TallySyncReportPage() {
           if (!open) setSelectedRecord(null);
         }}
       >
-        <DialogContent showCloseButton={false} className="max-w-3xl p-0 overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl">
+        <DialogContent showCloseButton={false} className="w-[96vw] sm:w-[92vw] md:max-w-4xl lg:max-w-5xl p-0 overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl">
           {selectedRecord && (
             <div className="flex flex-col max-h-[90vh]">
               {/* Modal Top Header */}
-              <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-xs">
                     <Receipt className="w-5 h-5" />
@@ -1330,36 +1856,69 @@ export default function TallySyncReportPage() {
               </div>
 
               {/* Modal Scrollable Body */}
-              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs flex-1">
                 
                 {/* 1. Financial KPI Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-1">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Taxable Base</span>
-                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                      ₹{Number(selectedRecord.Invoice_Amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      {recordFinancials && recordFinancials.extraCharges > 0 ? 'Items Subtotal' : 'Taxable Base'}
+                    </span>
+                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-mono">
+                      ₹{(recordFinancials && recordFinancials.extraCharges > 0
+                        ? recordFinancials.itemsSubtotal
+                        : Number(selectedRecord.Invoice_Amount || 0)
+                      ).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
+                    <span className="text-[10px] text-slate-400 block">
+                      {recordFinancials?.productItemsCount || 1} {recordFinancials?.productItemsCount === 1 ? 'item' : 'items'}
+                    </span>
                   </div>
 
                   <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-1">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">CGST (Central)</span>
-                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                      ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      {recordFinancials && recordFinancials.extraCharges > 0 ? 'Shipping & Packing' : 'CGST (Central)'}
+                    </span>
+                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-mono">
+                      ₹{(recordFinancials && recordFinancials.extraCharges > 0
+                        ? recordFinancials.extraCharges
+                        : Number(selectedRecord.Tax_Amount || 0) / 2
+                      ).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
+                    {recordFinancials && recordFinancials.extraCharges > 0 ? (
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate" title={`₹${recordFinancials.freightCost.toFixed(2)} Freight • ₹${recordFinancials.packingCharges.toFixed(2)} Packing`}>
+                        ₹{recordFinancials.freightCost.toFixed(2)} Frt • ₹{recordFinancials.packingCharges.toFixed(2)} Pck
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 block">Central GST</span>
+                    )}
                   </div>
 
                   <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-1">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">SGST (State)</span>
-                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                      ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      {recordFinancials && recordFinancials.extraCharges > 0 ? 'Taxable Base' : 'SGST (State)'}
+                    </span>
+                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-mono">
+                      ₹{(recordFinancials && recordFinancials.extraCharges > 0
+                        ? recordFinancials.taxableBase
+                        : Number(selectedRecord.Tax_Amount || 0) / 2
+                      ).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-medium">
+                      {recordFinancials && recordFinancials.extraCharges > 0 ? 'Items + Charges' : 'State GST'}
+                    </span>
                   </div>
 
                   <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-1">
                     <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider block">Net Total</span>
-                    <p className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-300">
-                      ₹{Number(selectedRecord.Net_Amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <p className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-300 font-mono">
+                      ₹{Number(selectedRecord.Net_Amount || (recordFinancials?.netTotal || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
+                    {recordFinancials && recordFinancials.amountReceived > 0 && (
+                      <span className="text-[10px] text-emerald-600 font-medium block">
+                        Paid: ₹{recordFinancials.amountReceived.toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1389,12 +1948,29 @@ export default function TallySyncReportPage() {
                         <span className="text-slate-400">Payment Method:</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedRecord.Payment_Method || 'Cash'}</span>
                       </div>
-                      <div className="flex justify-between py-1">
+                      <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800/50">
                         <span className="text-slate-400">Payment Status:</span>
                         <span className={cn("font-bold", selectedRecord.Is_Paid ? "text-emerald-600" : "text-amber-600")}>
                           {selectedRecord.Is_Paid ? 'Paid' : 'Unpaid'}
                         </span>
                       </div>
+                      {recordFinancials && recordFinancials.amountReceived > 0 && (
+                        <div className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-800/50">
+                          <span className="text-slate-400">Amount Paid:</span>
+                          <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            ₹{recordFinancials.amountReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {recordFinancials.changeReturned > 0 ? ` (Change: ₹${recordFinancials.changeReturned.toFixed(2)})` : ''}
+                          </span>
+                        </div>
+                      )}
+                      {recordFinancials && recordFinancials.extraCharges > 0 && (
+                        <div className="flex justify-between py-1">
+                          <span className="text-slate-400">Freight & Packing:</span>
+                          <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
+                            ₹{recordFinancials.freightCost.toFixed(2)} Frt + ₹{recordFinancials.packingCharges.toFixed(2)} Pck
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1443,70 +2019,229 @@ export default function TallySyncReportPage() {
                   </div>
                 </div>
 
-                {/* 3. Items or Consolidated Tax Breakdown */}
-                <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2">
-                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                    <span>Tax Slabs & Accounting Breakdown</span>
-                    <span className="text-[11px] font-normal text-slate-400">
-                      {Array.isArray(selectedRecord.items) && selectedRecord.items.length > 0
-                        ? `${selectedRecord.items.length} items`
-                        : 'Voucher tax details'}
+                {/* 3. Invoice Item Details & Line Breakdown */}
+                <div className="p-3.5 sm:p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 flex items-center justify-center">
+                        <Package className="w-3.5 h-3.5" />
+                      </div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                        Invoice Item Details
+                      </h4>
+                      {isLoadingRecordItems && (
+                        <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin ml-1" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                      {displayItems.length} {displayItems.length === 1 ? 'line' : 'lines'}
                     </span>
-                  </h4>
+                  </div>
 
-                  {Array.isArray(selectedRecord.items) && selectedRecord.items.length > 0 ? (
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-700">
-                          <tr>
-                            <th className="p-2">Item</th>
-                            <th className="p-2 text-center">Qty</th>
-                            <th className="p-2 text-right">Price</th>
-                            <th className="p-2 text-right">Tax</th>
-                            <th className="p-2 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                          {selectedRecord.items.map((it: any, i: number) => (
-                            <tr key={i}>
-                              <td className="p-2 text-slate-800 dark:text-slate-200">{it.name || it.item_name || it.title || `Item #${i + 1}`}</td>
-                              <td className="p-2 text-center">{it.quantity || it.qty || 1}</td>
-                              <td className="p-2 text-right">₹{Number(it.price || it.rate || 0).toFixed(2)}</td>
-                              <td className="p-2 text-right">₹{Number(it.tax || it.taxAmount || 0).toFixed(2)}</td>
-                              <td className="p-2 text-right font-bold">₹{Number(it.total || it.totalAmount || 0).toFixed(2)}</td>
+                  {/* Items Table with Horizontal Scroll & Responsive Design */}
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 shadow-2xs">
+                    <table className="w-full text-left text-xs min-w-[700px] border-collapse">
+                      <thead className="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
+                        <tr>
+                          <th className="py-2.5 px-3 text-center w-10 shrink-0">#</th>
+                          <th className="py-2.5 px-3 min-w-[220px]">Item Description</th>
+                          <th className="py-2.5 px-3 text-center w-16 shrink-0">Qty</th>
+                          <th className="py-2.5 px-3 text-right w-24 shrink-0 whitespace-nowrap">Unit Price</th>
+                          <th className="py-2.5 px-3 text-right w-20 shrink-0 whitespace-nowrap">Discount</th>
+                          <th className="py-2.5 px-3 text-right w-24 shrink-0 whitespace-nowrap">Tax (GST)</th>
+                          <th className="py-2.5 px-3 text-right w-28 shrink-0 whitespace-nowrap">Total Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                        {displayItems.map((item: any, idx: number) => {
+                          const isCharge = !!item.isExtraCharge;
+                          const itemQty = Number(item.quantity || item.qty || 1);
+                          const itemRate = Number(item.rate || item.price || 0);
+                          const itemDiscount = Number(item.discount || item.discountPercent || 0);
+                          const itemTax = Number(item.tax || item.taxAmount || 0);
+                          const itemTotal = Number(item.total || item.totalAmount || (itemRate * itemQty));
+
+                          return (
+                            <tr
+                              key={item.id || idx}
+                              className={cn(
+                                "transition-colors",
+                                isCharge
+                                  ? "bg-slate-50/70 dark:bg-slate-800/40 font-medium text-slate-700 dark:text-slate-300"
+                                  : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                              )}
+                            >
+                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-400">
+                                {idx + 1}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-1.5 font-semibold text-slate-850 dark:text-slate-100">
+                                  {item.chargeType === 'freight' && (
+                                    <Truck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                  )}
+                                  {item.chargeType === 'packing' && (
+                                    <Box className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  )}
+                                  <span>{item.name || item.Product_Name || `Line Item #${idx + 1}`}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 font-mono">
+                                  {item.sku && (
+                                    <span className={cn(
+                                      "px-1.5 py-0.2 rounded font-sans",
+                                      isCharge
+                                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300"
+                                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                                    )}>
+                                      {isCharge ? 'Extra Charge' : `SKU: ${item.sku}`}
+                                    </span>
+                                  )}
+                                  {item.uom && (
+                                    <span className="text-slate-400">
+                                      • UOM: {item.uom}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200">
+                                  {itemQty}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                ₹{itemRate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                                {itemDiscount > 0 ? `₹${itemDiscount.toFixed(2)}` : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                ₹{itemTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {item.taxRate ? (
+                                  <span className="text-[10px] text-slate-400 block font-sans">
+                                    ({item.taxRate}%)
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                                ₹{itemTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200/60 dark:border-slate-800 space-y-1.5 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Taxable Sales Amount (Base):</span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          ₹{Number(selectedRecord.Invoice_Amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Central Tax (CGST):</span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">State Tax (SGST):</span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
-                        <span>Total Invoice Net Amount:</span>
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          ₹{Number(selectedRecord.Net_Amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                          );
+                        })}
+                      </tbody>
+                      {/* Summary Footer with Perfect Column Alignment (Labels span Col 1-6, Amounts in Col 7) */}
+                      <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-semibold text-slate-700 dark:text-slate-200 border-t border-slate-200 dark:border-slate-800 text-xs">
+                        <tr className="border-b border-slate-100 dark:border-slate-800/60">
+                          <td colSpan={6} className="py-2 px-3 text-right text-slate-500 font-medium">
+                            Products Subtotal ({recordFinancials?.productItemsCount || 1} {recordFinancials?.productItemsCount === 1 ? 'item' : 'items'}):
+                          </td>
+                          <td colSpan={1} className="py-2 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                            ₹{(recordFinancials?.itemsSubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+
+                        {recordFinancials && recordFinancials.freightCost > 0 && (
+                          <tr className="border-b border-slate-100 dark:border-slate-800/60 bg-blue-50/25 dark:bg-blue-950/10 text-slate-700 dark:text-slate-300">
+                            <td colSpan={6} className="py-1.5 px-3 text-right font-medium">
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                <Truck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                <span>Freight & Delivery Charges:</span>
+                              </div>
+                            </td>
+                            <td colSpan={1} className="py-1.5 px-3 text-right font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              +₹{recordFinancials.freightCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )}
+
+                        {recordFinancials && recordFinancials.packingCharges > 0 && (
+                          <tr className="border-b border-slate-100 dark:border-slate-800/60 bg-amber-50/25 dark:bg-amber-950/10 text-slate-700 dark:text-slate-300">
+                            <td colSpan={6} className="py-1.5 px-3 text-right font-medium">
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                <Box className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span>Packing & Packaging Charges:</span>
+                              </div>
+                            </td>
+                            <td colSpan={1} className="py-1.5 px-3 text-right font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              +₹{recordFinancials.packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )}
+
+                        {recordFinancials && recordFinancials.discountAmount > 0 && (
+                          <tr className="border-b border-slate-100 dark:border-slate-800/60 text-emerald-600 bg-emerald-50/20 dark:bg-emerald-950/10">
+                            <td colSpan={6} className="py-1.5 px-3 text-right font-medium text-emerald-700 dark:text-emerald-400">
+                              Invoice Discount:
+                            </td>
+                            <td colSpan={1} className="py-1.5 px-3 text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              -₹{recordFinancials.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )}
+
+                        <tr className="border-t border-slate-200/80 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-800/50">
+                          <td colSpan={6} className="py-2 px-3 text-right text-slate-700 dark:text-slate-200 font-bold">
+                            Total Taxable Base (Invoice Amount):
+                          </td>
+                          <td colSpan={1} className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                            ₹{Number(selectedRecord.Invoice_Amount || (recordFinancials?.taxableBase || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+
+                        {Number(selectedRecord.Tax_Amount || 0) > 0 && (
+                          <>
+                            <tr className="border-b border-slate-100 dark:border-slate-800/50 text-slate-500 font-normal">
+                              <td colSpan={6} className="py-1 px-3 text-right">
+                                CGST (Central Tax):
+                              </td>
+                              <td colSpan={1} className="py-1 px-3 text-right font-mono whitespace-nowrap">
+                                ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                            <tr className="border-b border-slate-100 dark:border-slate-800/50 text-slate-500 font-normal">
+                              <td colSpan={6} className="py-1 px-3 text-right">
+                                SGST (State Tax):
+                              </td>
+                              <td colSpan={1} className="py-1 px-3 text-right font-mono whitespace-nowrap">
+                                ₹{(Number(selectedRecord.Tax_Amount || 0) / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          </>
+                        )}
+
+                        <tr className="border-t-2 border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/30 text-slate-900 dark:text-white">
+                          <td colSpan={6} className="py-2.5 px-3 text-right font-bold text-sm text-emerald-800 dark:text-emerald-300">
+                            Net Invoice Total:
+                          </td>
+                          <td colSpan={1} className="py-2.5 px-3 text-right font-mono font-bold text-base text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                            ₹{Number(selectedRecord.Net_Amount || (recordFinancials?.netTotal || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+
+                        {recordFinancials && recordFinancials.amountReceived > 0 && (
+                          <>
+                            <tr className="border-t border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                              <td colSpan={6} className="py-1.5 px-3 text-right font-medium">
+                                Amount Paid by Customer ({selectedRecord.Payment_Method || 'Cash'}):
+                              </td>
+                              <td colSpan={1} className="py-1.5 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                ₹{recordFinancials.amountReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                            {recordFinancials.changeReturned > 0 && (
+                              <tr className="border-t border-slate-100 dark:border-slate-800 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 font-semibold">
+                                <td colSpan={6} className="py-1 px-3 text-right">
+                                  Change / Balance Returned:
+                                </td>
+                                <td colSpan={1} className="py-1 px-3 text-right font-mono whitespace-nowrap">
+                                  ₹{recordFinancials.changeReturned.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        )}
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
 
               </div>

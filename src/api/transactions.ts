@@ -1,5 +1,6 @@
 import { fetchFromApi } from '@/service/apiClient';
 import { getLocalData } from '@/utils/persistentStorage';
+import { usePosInvoiceStore } from '@/store/usePosInvoiceStore';
 
 // ── Types & Interfaces ────────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ export async function syncInvoiceToTally(invoiceOrId: number | string | Record<s
 
   // If sync succeeded or returned positive response, update the database record with Tally_Id and SUCCESS
   if (syncSuccess || (res && !res.error && res.status !== 400 && res.status !== 500)) {
+    invalidateTallyInvoicesCache();
     const resolvedTallyId =
       res?.tally_id ||
       res?.Tally_Id ||
@@ -249,6 +251,7 @@ export async function syncMultipleInvoicesToTally(
     }
   }
 
+  invalidateTallyInvoicesCache();
   return { successCount, failCount, lastError, results };
 }
 
@@ -313,6 +316,99 @@ export function normalizeInvoiceRecord(inv: any): any {
     invoiceAmount = Math.max(0, netAmount - taxAmount);
   }
 
+  // Extract and normalize line items (from items, Invoice_Details, Product_Details, details, etc.)
+  const rawItems = inv.items || inv.Invoice_Details || inv.SalesInvoice_Details || inv.Product_Details || inv.details || [];
+  let normalizedItems: any[] = [];
+  if (Array.isArray(rawItems) && rawItems.length > 0) {
+    normalizedItems = rawItems.map((it: any, idx: number) => {
+      const prod = it.product || {};
+      const name = it.name || it.Product_Name || it.Item_Name || it.title || prod.name || prod.title || `Item #${idx + 1}`;
+      const sku = String(it.sku || it.Product_Id || prod.sku || prod.id || it.id || '');
+      const quantity = Number(it.quantity || it.qty || it.Shipment_Quantity || it.Quantity || 1);
+      const rate = Number(it.rate || it.price || prod.price || it.Unit_Price || it.Rate || 0);
+      const taxRate = Number(it.taxRate || it.Tax_Percentage || prod.taxRate || 0);
+      const tax = Number(it.taxAmount || it.tax || it.Tax || (taxRate > 0 ? (rate * quantity * taxRate) / 100 : 0));
+      const discount = Number(it.discountPercent || it.discount || it.Discount || 0);
+      let total = 0;
+      if (it.Amount !== undefined && it.Amount !== null && Number(it.Amount) > 0) {
+        total = Number(it.Amount);
+      } else if (it.amount !== undefined && it.amount !== null && Number(it.amount) > 0) {
+        total = Number(it.amount);
+      } else if (it.total !== undefined && it.total !== null && Number(it.total) > 0) {
+        total = Number(it.total);
+      } else if (it.totalAmount !== undefined && it.totalAmount !== null && Number(it.totalAmount) > 0) {
+        total = Number(it.totalAmount);
+      } else if (it.Final_Price !== undefined && it.Final_Price !== null && Number(it.Final_Price) > 0) {
+        total = Number(it.Final_Price);
+      } else if (it.Net_Amount !== undefined && it.Net_Amount !== null && Number(it.Net_Amount) > 0) {
+        total = Number(it.Net_Amount);
+      } else {
+        total = Math.max(0, rate * quantity - discount + tax);
+      }
+      const uom = it.unit || it.UOM || prod.unit || 'Unit';
+
+      return {
+        id: String(it.id || it.Product_Id || `item-${idx + 1}`),
+        name,
+        Product_Name: name,
+        Item_Name: name,
+        sku,
+        quantity,
+        qty: quantity,
+        rate,
+        price: rate,
+        taxRate,
+        tax,
+        taxAmount: tax,
+        discount,
+        total,
+        totalAmount: total,
+        uom,
+      };
+    });
+  }
+
+  // Fallback: If normalizedItems is still empty, look up usePosInvoiceStore for preloaded items
+  if (normalizedItems.length === 0 && typeof window !== 'undefined') {
+    try {
+      const posStoreInvs = usePosInvoiceStore?.getState?.()?.invoices || [];
+      const matchedPos = posStoreInvs.find(
+        (p: any) =>
+          String(p.invoiceNumber || p.id).toLowerCase() === String(invoiceId).toLowerCase() ||
+          String(p.id) === String(id)
+      );
+      if (matchedPos && Array.isArray(matchedPos.items) && matchedPos.items.length > 0) {
+        normalizedItems = matchedPos.items.map((it: any, idx: number) => {
+          const prod = it.product || {};
+          const name = it.name || prod.name || it.Product_Name || `Item #${idx + 1}`;
+          const sku = String(it.sku || prod.sku || prod.id || '');
+          const quantity = Number(it.quantity || it.qty || 1);
+          const rate = Number(it.rate || it.price || prod.price || 0);
+          const tax = Number(it.taxAmount || it.tax || 0);
+          const discount = Number(it.discountPercent || 0);
+          const total = Number(it.total || (rate * quantity));
+          const uom = it.unit || prod.unit || 'Unit';
+          return {
+            id: String(it.id || idx),
+            name,
+            Product_Name: name,
+            sku,
+            quantity,
+            qty: quantity,
+            rate,
+            price: rate,
+            tax,
+            taxAmount: tax,
+            discount,
+            total,
+            totalAmount: total,
+            uom,
+          };
+        });
+      }
+    } catch {}
+  }
+
   const rawStatus = String(
     inv.Tally_Sync_Status ||
     inv.tally_sync_status ||
@@ -324,6 +420,8 @@ export function normalizeInvoiceRecord(inv: any): any {
 
   return {
     ...inv,
+    items: normalizedItems,
+    Invoice_Details: normalizedItems,
     id: id || invoiceId,
     Invoice_Id: invoiceId,
     invoiceNumber: invoiceId,
@@ -344,97 +442,151 @@ export function normalizeInvoiceRecord(inv: any): any {
     Customer_Phone: inv.Customer_Phone || inv.customerPhone || inv.Customer_Mobile || '',
     Payment_Method: inv.Payment_Method || inv.paymentMethod || 'Cash',
     Is_Paid: inv.Is_Paid !== undefined ? inv.Is_Paid : (inv.status === 'Paid'),
+    Freight_Cost: Number(inv.Freight_Cost || inv.freight || 0),
+    Packing_Charges: Number(inv.Packing_Charges || inv.packing || 0),
+    Discount_Amount: Number(inv.Discount_Amount || inv.discount || inv.discountAmount || 0),
+    Amount_Received: Number(inv.Amount_Received ?? inv.amountReceived ?? (inv.Is_Paid ? netAmount : 0)),
   };
+}
+
+// In-flight deduplication promise and fresh memory cache (30-second TTL)
+let tallyInvoicesInFlightPromise: Promise<any[]> | null = null;
+let tallyInvoicesCache: { data: any[]; timestamp: number } | null = null;
+const TALLY_CACHE_TTL = 30000; // 30 seconds
+
+export function invalidateTallyInvoicesCache(): void {
+  tallyInvoicesCache = null;
+  tallyInvoicesInFlightPromise = null;
 }
 
 /**
  * Fetch Sales Invoices for Tally Sync Report
- * Queries all real invoice endpoints and local persistent storage to ensure
- * all actual sales invoices are returned without missing records.
+ * Queries real invoice endpoints and local persistent storage.
+ * Automatically deduplicates concurrent calls and caches results to prevent redundant duplicate requests.
  */
-export async function fetchTallyReportInvoices(userId?: number | string): Promise<any[]> {
-  const combinedList: any[] = [];
-  const seenKeys = new Set<string>();
-
-  const addUnique = (rawItem: any) => {
-    const item = normalizeInvoiceRecord(rawItem);
-    if (!item) return;
-    const key = String(item.Invoice_Id || item.id || '').trim().toLowerCase();
-    if (!key) return;
-
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      combinedList.push(item);
-    } else {
-      // Merge enriched information if available
-      const existingIdx = combinedList.findIndex(
-        (x) => String(x.Invoice_Id || x.id || '').trim().toLowerCase() === key
-      );
-      if (existingIdx !== -1) {
-        combinedList[existingIdx] = {
-          ...combinedList[existingIdx],
-          ...item,
-          Tally_Id: item.Tally_Id || combinedList[existingIdx].Tally_Id,
-          Tally_Sync_Status:
-            item.Tally_Sync_Status === 'SUCCESS'
-              ? 'SUCCESS'
-              : combinedList[existingIdx].Tally_Sync_Status,
-          Tax_Amount: item.Tax_Amount || combinedList[existingIdx].Tax_Amount,
-        };
-      }
-    }
-  };
-
-  // 1. Concurrently query available backend invoice endpoints
-  const endpoints = [
-    '/user/SalesInvoiceAdditional/?Is_Deleted=False',
-    '/user/SalesInvoiceList/?Is_Deleted=False',
-    '/user/SalesInvoiceListwithoutpagination/?Is_Paid=True',
-    '/user/SalesInvoiceListwithoutpagination/?Is_Paid=False',
-    '/user/SalesInvoiceAllAdditional/',
-  ];
-
-  const results = await Promise.allSettled(
-    endpoints.map((ep) => fetchFromApi(ep, { method: 'GET' }))
-  );
-
-  results.forEach((res) => {
-    if (res.status === 'fulfilled' && res.value) {
-      const data = res.value;
-      const list = Array.isArray(data)
-        ? data
-        : (data?.results || data?.Result || data?.data || []);
-      if (Array.isArray(list)) {
-        list.forEach(addUnique);
-      }
-    }
-  });
-
-  // 2. Also incorporate local persistent storage (POS invoices & sales invoices created locally)
-  if (typeof window !== 'undefined') {
-    try {
-      const posLocal = getLocalData<any>('pegatto_pos_invoices');
-      if (Array.isArray(posLocal)) {
-        posLocal.forEach(addUnique);
-      }
-      const invLocal = getLocalData<any>('pegatto_invoices');
-      if (Array.isArray(invLocal)) {
-        invLocal.forEach(addUnique);
-      }
-    } catch (e) {
-      console.warn('Error reading local invoice storage for Tally Report:', e);
-    }
+export async function fetchTallyReportInvoices(userId?: number | string, forceRefresh = false): Promise<any[]> {
+  // Return cached result if fresh and not forced
+  if (!forceRefresh && tallyInvoicesCache && (Date.now() - tallyInvoicesCache.timestamp) < TALLY_CACHE_TTL) {
+    return tallyInvoicesCache.data;
   }
 
-  // 3. Sort by Invoice_Date descending (newest first), then by Invoice_Id descending
-  combinedList.sort((a, b) => {
-    const timeA = a.Invoice_Date ? new Date(a.Invoice_Date).getTime() : 0;
-    const timeB = b.Invoice_Date ? new Date(b.Invoice_Date).getTime() : 0;
-    if (timeB !== timeA) return timeB - timeA;
-    return String(b.Invoice_Id || '').localeCompare(String(a.Invoice_Id || ''));
-  });
+  // Deduplicate concurrent in-flight calls: if already fetching, reuse the in-flight promise
+  if (tallyInvoicesInFlightPromise) {
+    return tallyInvoicesInFlightPromise;
+  }
 
-  return combinedList;
+  tallyInvoicesInFlightPromise = (async () => {
+    try {
+      const combinedList: any[] = [];
+      const seenKeys = new Set<string>();
+
+      const addUnique = (rawItem: any) => {
+        const item = normalizeInvoiceRecord(rawItem);
+        if (!item) return;
+        const key = String(item.Invoice_Id || item.id || '').trim().toLowerCase();
+        if (!key) return;
+
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          combinedList.push(item);
+        } else {
+          // Merge enriched information if available
+          const existingIdx = combinedList.findIndex(
+            (x) => String(x.Invoice_Id || x.id || '').trim().toLowerCase() === key
+          );
+          if (existingIdx !== -1) {
+            const existing = combinedList[existingIdx];
+            const mergedItems =
+              item.items && item.items.length > 0
+                ? item.items
+                : existing.items && existing.items.length > 0
+                ? existing.items
+                : [];
+
+            combinedList[existingIdx] = {
+              ...existing,
+              ...item,
+              items: mergedItems,
+              Invoice_Details: mergedItems,
+              Freight_Cost: Number(item.Freight_Cost || existing.Freight_Cost || 0),
+              Packing_Charges: Number(item.Packing_Charges || existing.Packing_Charges || 0),
+              Discount_Amount: Number(item.Discount_Amount || existing.Discount_Amount || 0),
+              Amount_Received: Number(item.Amount_Received ?? existing.Amount_Received ?? 0),
+              Tally_Id: item.Tally_Id || existing.Tally_Id,
+              Tally_Sync_Status:
+                item.Tally_Sync_Status === 'SUCCESS'
+                  ? 'SUCCESS'
+                  : existing.Tally_Sync_Status,
+              Tax_Amount: item.Tax_Amount || existing.Tax_Amount,
+            };
+          }
+        }
+      };
+
+      // 1. Concurrently query available backend invoice endpoints
+      const endpoints = [
+        '/user/SalesInvoiceAdditional/?Is_Deleted=False',
+        '/user/SalesInvoiceList/?Is_Deleted=False',
+        '/user/SalesInvoiceListwithoutpagination/?Is_Paid=True',
+        '/user/SalesInvoiceListwithoutpagination/?Is_Paid=False',
+        '/user/SalesInvoiceAllAdditional/',
+      ];
+
+      const results = await Promise.allSettled(
+        endpoints.map((ep) => fetchFromApi(ep, { method: 'GET' }))
+      );
+
+      results.forEach((res) => {
+        if (res.status === 'fulfilled' && res.value) {
+          const data = res.value;
+          const list = Array.isArray(data)
+            ? data
+            : (data?.results || data?.Result || data?.data || []);
+          if (Array.isArray(list)) {
+            list.forEach(addUnique);
+          }
+        }
+      });
+
+      // 2. Also incorporate usePosInvoiceStore state & local persistent storage
+      if (typeof window !== 'undefined') {
+        try {
+          const posStoreInvs = usePosInvoiceStore?.getState?.()?.invoices;
+          if (Array.isArray(posStoreInvs)) {
+            posStoreInvs.forEach(addUnique);
+          }
+        } catch {}
+
+        try {
+          const posLocal = getLocalData<any>('pegatto_pos_invoices');
+          if (Array.isArray(posLocal)) {
+            posLocal.forEach(addUnique);
+          }
+          const invLocal = getLocalData<any>('pegatto_invoices');
+          if (Array.isArray(invLocal)) {
+            invLocal.forEach(addUnique);
+          }
+        } catch (e) {
+          console.warn('Error reading local invoice storage for Tally Report:', e);
+        }
+      }
+
+      // 3. Sort by Invoice_Date descending (newest first), then by Invoice_Id descending
+      combinedList.sort((a, b) => {
+        const timeA = a.Invoice_Date ? new Date(a.Invoice_Date).getTime() : 0;
+        const timeB = b.Invoice_Date ? new Date(b.Invoice_Date).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return String(b.Invoice_Id || '').localeCompare(String(a.Invoice_Id || ''));
+      });
+
+      tallyInvoicesCache = { data: combinedList, timestamp: Date.now() };
+      return combinedList;
+    } finally {
+      tallyInvoicesInFlightPromise = null;
+    }
+  })();
+
+  return tallyInvoicesInFlightPromise;
 }
 
 /**
